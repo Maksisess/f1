@@ -1,0 +1,22 @@
+{
+  "crons": [
+    {
+      "path": "/api/wallet-cron",
+      "schedule": "0 0 * * *"
+    }
+  ],
+  "functions": {
+    "api/wallet-cron.js": {
+      "maxDuration": 60
+    },
+    "api/user.js": {
+      "maxDuration": 60
+    },
+    "api/roulette.js": {
+      "maxDuration": 30
+    },
+    "api/bot.js": {
+      "maxDuration": 30
+    }
+  }
+}

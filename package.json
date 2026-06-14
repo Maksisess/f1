@@ -1,0 +1,12 @@
+{
+  "name": "f1-duel",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.3",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^15.1.0"
+  }
+}

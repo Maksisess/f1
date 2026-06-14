@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Frog Hunt</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="tma-safe-area.css">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="tma-safe-area.js"></script>
+</head>
+<body>
+
+  <!-- START SCREEN -->
+  <div id="screen-start" class="screen active">
+    <a href="/" class="back-link">← Назад</a>
+    <div class="logo-container">
+      <img class="logo-frog" src="https://img.icons8.com/fluency/128/frog-face.png" width="120" height="120" alt="Frog">
+      <h1 class="game-title">FROG<br>HUNT</h1>
+      <p class="game-subtitle">Блеф на болоте</p>
+    </div>
+
+    <details class="rules-block">
+      <summary>Как играть?</summary>
+      <div class="rules-content">
+        <p><strong><span class="ui-icon ui-icon-frog inline"></span> Жаба</strong> — прячься на кувшинках. Переживи 5 ходов!</p>
+        <p><strong><span class="ui-icon ui-icon-hunter inline"></span> Охотник</strong> — стреляй по кувшинкам. Найди жабу!</p>
+        <p>Попал — охотник победил! Не попал за 5 ходов — жаба победила!</p>
+        <p>Если жаба перепрыгнула — охотник увидит, где она была</p>
+        <p>Если жаба осталась на месте — охотник не узнает ничего</p>
+        <p style="margin-top:8px"><strong>Матч:</strong> 2 игры (меняетесь ролями). Ничья = тайбрейк!</p>
+        <p><strong>Тайбрейк:</strong> 4 кувшинки, 1 ход, охотник стреляет дважды!</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- DEMO INTRO SCREEN -->
+  <div id="screen-demo" class="screen">
+    <div class="center-content">
+      <div class="logo-container" style="margin-bottom:10px">
+        <h1 class="game-title">ДЭМО<br>РЕЖИМ</h1>
+      </div>
+      <p style="max-width:320px;text-align:center;opacity:.92;line-height:1.5">
+        Тренировочная игра против бота в стиле Frog Hunt.
+        Без TON-ставок: просто отрабатывай тактику и реакцию.
+      </p>
+      <button id="btn-demo-play" class="btn btn-primary" style="margin-top:14px">Играть</button>
+      <button id="btn-demo-back" class="btn btn-secondary" style="margin-top:8px">Назад</button>
+    </div>
+  </div>
+
+  <!-- WAITING SCREEN -->
+  <div id="screen-waiting" class="screen">
+    <div class="center-content">
+      <div class="spinner"></div>
+      <p>Поиск соперника...</p>
+      <button id="btn-cancel" class="btn btn-secondary">Отмена</button>
+    </div>
+    <div id="accept-modal" style="display:none;position:absolute;inset:0;background:rgba(5,8,20,.72);backdrop-filter:blur(2px);z-index:12;align-items:center;justify-content:center;padding:16px">
+      <div style="width:100%;max-width:360px;background:linear-gradient(180deg,#1f2a57,#162047);border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:14px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,.45)">
+        <p style="font-weight:800;letter-spacing:.03em;margin:2px 0 8px">Матч найден</p>
+        <p id="accept-info" style="font-size:13px;opacity:.95;margin:0 0 8px"></p>
+        <p id="accept-timer" style="font-size:24px;font-weight:900;color:#8ef0b2;margin:0 0 10px">5с</p>
+        <p style="font-size:12px;opacity:.85;margin:0">Игра начнется автоматически</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="screen-game" class="screen">
+    <div class="game-layout">
+      <div class="tma-top-safe tma-top-safe--pond" aria-hidden="true"></div>
+
+      <!-- Header -->
+      <div class="game-header">
+        <div class="header-row">
+          <span id="game-label" class="game-label">Игра 1/2</span>
+          <span id="match-score" class="match-score">0 : 0</span>
+        </div>
+        <div class="header-row">
+          <span id="round-label" class="round-label">Ход 1/5</span>
+          <span id="role-label" class="role-badge"></span>
+        </div>
+      </div>
+
+      <!-- Pond Area -->
+      <div class="pond-area">
+        <div class="pond">
+          <div class="water-surface"></div>
+          <div id="lilypads" class="lilypads-row"></div>
+          <div class="pond-reeds left"></div>
+          <div class="pond-reeds right"></div>
+        </div>
+      </div>
+
+      <!-- Bottom Controls -->
+      <div class="game-bottom">
+        <p id="hint-text" class="hint-text">Выбери кувшинку</p>
+        <div class="timer-track">
+          <div id="timer-bar" class="timer-fill"></div>
+        </div>
+        <button id="btn-confirm" class="btn btn-primary btn-confirm" disabled>Готово</button>
+      </div>
+
+      <!-- Overlays inside game -->
+      <div id="overlay-role" class="overlay">
+        <div class="overlay-card">
+          <div id="role-icon" class="big-icon"></div>
+          <h2 id="role-title"></h2>
+          <p id="role-desc"></p>
+        </div>
+      </div>
+
+      <div id="overlay-round-result" class="overlay">
+        <div class="overlay-card">
+          <div id="rr-icon" class="big-icon"></div>
+          <h2 id="rr-title"></h2>
+          <p id="rr-desc"></p>
+        </div>
+      </div>
+
+      <div id="overlay-game-over" class="overlay">
+        <div class="overlay-card">
+          <div id="go-icon" class="big-icon"></div>
+          <h2 id="go-title"></h2>
+          <p id="go-desc"></p>
+          <p id="go-score" class="overlay-score"></p>
+        </div>
+      </div>
+
+      <div id="overlay-switch" class="overlay">
+        <div class="overlay-card">
+          <div class="big-icon"><span class="ui-icon ui-icon-sync big"></span></div>
+          <h2>Смена ролей!</h2>
+          <p>Теперь играете за другую сторону</p>
+        </div>
+      </div>
+
+      <div id="overlay-tiebreak" class="overlay">
+        <div class="overlay-card">
+          <div class="big-icon"><span class="ui-icon ui-icon-bolt big"></span></div>
+          <h2>Тайбрейк!</h2>
+          <p>4 кувшинки, 1 ход, 2 выстрела</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- RESULT SCREEN -->
+  <div id="screen-result" class="screen">
+    <div class="center-content">
+      <div id="final-icon" class="final-icon"></div>
+      <h1 id="final-title" class="final-title"></h1>
+      <p id="final-score" class="final-score"></p>
+      <div class="result-btns">
+        <button id="btn-again" class="btn btn-primary">Ещё раз</button>
+        <button id="btn-menu" class="btn btn-secondary">Выйти</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
