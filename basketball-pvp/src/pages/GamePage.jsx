@@ -1223,7 +1223,6 @@ const GamePage = () => {
   if(screen==='stake-online') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="z-10 flex flex-col items-center gap-5 w-full max-w-sm px-5">
-        <button onClick={()=>goHome()} className="self-start text-gray-400 hover:text-white text-sm uppercase tracking-wider" style={ST}>← Назад</button>
         <div className="text-8xl">🏀</div>
         <h1 className="text-5xl text-white tracking-widest uppercase">STREET<span className="text-amber-400">BALL</span></h1>
         <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
@@ -1251,6 +1250,7 @@ const GamePage = () => {
             })}
           </div>
           <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Играть</button>
+          <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider active:scale-95">Назад</button>
         </div>
         {!!bottomNotice && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">

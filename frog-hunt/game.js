@@ -262,8 +262,12 @@ function ensureStakePicker() {
   wrap.innerHTML =
     '<div style="font-size:12px;color:#9aa3b2;margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
     '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%"></div>' +
-    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:12px">Играть</button>';
+    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:12px">Играть</button>' +
+    '<button type="button" id="stakeBackBtnFrog" class="btn btn-secondary" style="margin-top:8px">Назад</button>';
   mount.appendChild(wrap);
+  // Кнопка «Назад» теперь внизу под «Играть» (как в пенальти); прячем верхнюю угловую ссылку.
+  var topBackLink = document.querySelector('#screen-start .back-link');
+  if (topBackLink) topBackLink.style.display = 'none';
   var grid = $('stakeGridFrog');
   ALLOWED_STAKES.forEach(function(stake) {
     var b = document.createElement('button');
@@ -297,6 +301,8 @@ function ensureStakePicker() {
   });
   var playBtn = $('stakePlayBtnFrog');
   if (playBtn) playBtn.onclick = function(){ beginOnlineSearch(); };
+  var backBtnFrog = $('stakeBackBtnFrog');
+  if (backBtnFrog) backBtnFrog.onclick = function(){ window.location.href = '/'; };
   renderStakePicker();
 }
 
