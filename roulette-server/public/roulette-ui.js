@@ -53,8 +53,7 @@ const ROLLS_SEG_COLORS = [
   '#ab47bc',
 ];
 
-const ROLLS_PRESET_DEFAULTS = [1, 2, 5, 7, 10];
-const ROLLS_PRESET_HIGH_DEFAULTS = [15, 20, 30, 50, 100];
+const ROLLS_PRESET_DEFAULTS = [1, 5, 10, 20, 50, 100];
 const ROLLS_STAKE_FINE_STEP = 0.1;
 
 class RouletteUI {
@@ -1346,7 +1345,7 @@ class RouletteUI {
     document.getElementById('rollsStakeMinus')?.toggleAttribute('disabled', !!disabled);
     document.getElementById('rollsStakePlus')?.toggleAttribute('disabled', !!disabled);
     document.getElementById('rouletteBetConfirmBtn')?.toggleAttribute('disabled', !!disabled);
-    document.querySelectorAll('#rollsPresetRow button, #rollsPresetRowHigh button').forEach((b) => {
+    document.querySelectorAll('#rollsPresetRow button').forEach((b) => {
       b.disabled = !!disabled;
     });
   }
@@ -1378,9 +1377,7 @@ class RouletteUI {
 
   renderPresetRow() {
     const wrap = document.getElementById('rollsPresetRow');
-    const hi = document.getElementById('rollsPresetRowHigh');
     if (wrap) wrap.innerHTML = this.presetPillsHtml(this.getPresetValues());
-    if (hi) hi.innerHTML = this.presetPillsHtml([...ROLLS_PRESET_HIGH_DEFAULTS]);
   }
 
   syncStakeDisplay() {
