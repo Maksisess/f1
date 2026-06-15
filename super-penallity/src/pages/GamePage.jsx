@@ -772,8 +772,7 @@ const GamePage = () => {
         <div className="z-10 w-full max-w-sm px-5 text-center">
           <h1 className="text-3xl font-black text-white">ПЕНАЛЬТИ</h1>
           <p className="text-gray-300 text-sm mt-3 leading-relaxed">
-            PvP режим с автоматическим подбором соперника. Если нет игроков онлайн — 
-            система подключит бота. Минимальная ставка 0.1 TON.
+            Тренировочная игра в стиле Пенальти. Без TON-ставок — отрабатывай тактику и реакцию.
           </p>
           <button onClick={() => startSearchBot()} className="w-full mt-5 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
           <button onClick={() => goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>

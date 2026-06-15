@@ -1212,24 +1212,26 @@ const GamePage = () => {
   if (screen==='demo-intro') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="z-10 w-full max-w-sm px-5 text-center">
-        <h1 className="text-3xl text-white uppercase tracking-widest">ДЭМО РЕЖИМ</h1>
+        <h1 className="text-3xl font-black text-white">STREETBALL</h1>
         <p className="text-gray-300 text-sm mt-3 leading-relaxed">
-          Тренировочная игра против бота в стиле Streetball. Без TON-ставок:
-          можно спокойно тестировать дистанции и ритм бросков.
+          Тренировочная игра в стиле Streetball. Без TON-ставок — отрабатывай тактику и реакцию.
         </p>
-        <button onClick={()=>findGameBot()} className="w-full mt-5 bg-emerald-500 text-black py-3 rounded-xl uppercase tracking-wider">Играть</button>
-        <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider">Назад</button>
+        <button onClick={()=>findGameBot()} className="w-full mt-5 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
+        <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
       </div>
     </div>
   );
 
   if(screen==='stake-online') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center overflow-hidden select-none" style={{ ...ST, ...safeFrameStyle }}>
-      <div className="z-10 flex flex-col items-center gap-5 w-full max-w-sm px-5">
-        <div className="text-8xl">🏀</div>
-        <h1 className="text-5xl text-white tracking-widest uppercase">STREET<span className="text-amber-400">BALL</span></h1>
-        <p className="text-[11px] text-gray-500 uppercase tracking-[0.2em] mb-2 text-center">Выбери ставки</p>
-        <div className="w-full max-w-xs mx-auto">
+      <div className="z-10 flex flex-col items-center gap-4 w-full max-w-xs px-4">
+        <div className="text-6xl">🏀</div>
+        <h1 className="text-3xl font-black text-white tracking-wide">STREETBALL</h1>
+        <p className="text-gray-400 text-sm text-center leading-relaxed">
+          PvP: разминка и 5 бросков на выбор дистанции. Овертайм — два кольца.
+        </p>
+        <div className="w-full max-w-xs mx-auto mt-2">
+          <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider text-center">Выбери ставки TON</p>
           <div className="grid grid-cols-3 gap-2">
             {[0.1, 0.5, 1, 5, 10, 25].map((stake) => {
               const active = selectedStakeOptions.includes(stake);
@@ -1239,12 +1241,12 @@ const GamePage = () => {
                   key={stake}
                   type="button"
                   onClick={() => toggleStakeOption(stake)}
-                  className={`aspect-square rounded-lg border-2 text-xs uppercase tracking-wider ${
+                  className={`aspect-square rounded-xl border text-sm font-black transition-all ${
                     blocked
                       ? 'bg-red-500/20 border-red-400 text-red-200'
                       : active
-                        ? 'bg-emerald-400/20 border-emerald-300 text-emerald-200 shadow-[0_0_14px_rgba(34,197,94,0.35)]'
-                        : 'bg-white/5 border-white/15 text-white/75 hover:bg-white/10'
+                        ? 'bg-emerald-500/25 border-emerald-300 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
                   }`}
                 >
                   {stake} TON
@@ -1252,8 +1254,8 @@ const GamePage = () => {
               );
             })}
           </div>
-          <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 text-black py-4 rounded-xl text-lg uppercase tracking-widest active:scale-95">Играть</button>
-          <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl uppercase tracking-wider active:scale-95">Назад</button>
+          <button onClick={()=>findGameOnline()} className="w-full mt-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl">Играть</button>
+          <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
         </div>
         {!!bottomNotice && (
           <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">

@@ -38,20 +38,31 @@
             </div>
             <h1 class="sp-start-title">OBSTACLE RACE</h1>
             <p class="sp-start-sub">PvP: барьеры и догонялки. Кто быстрее наберёт 5 очков — победил.</p>
+            <details class="of-rules">
+                <summary>Как играть?</summary>
+                <div class="of-rules-body">
+                    <p><strong>🏃 Бег по точкам.</strong> На каждой точке выбирай <strong>Бежать</strong> или <strong>Прыгнуть</strong>.</p>
+                    <p><strong>🚧 Барьеры.</strong> Соперник заранее расставляет барьеры на твоей дорожке. <strong>Прыгнул</strong> на барьер — перепрыгнул (+1). <strong>Побежал</strong> на барьер — врезался (0). Побежал по чистой точке — +1. Прыгнул впустую — 0.</p>
+                    <p><strong>Умения</strong> (одно на матч):</p>
+                    <p>👁 <strong>Рентген</strong> — подсмотри одну точку на дорожке: есть ли там барьер.</p>
+                    <p>⚡ <strong>Двойной ход</strong> — успех = +2 очка, провал = −1.</p>
+                    <p>💀 <strong>Саботаж</strong> — отмени очко соперника в этом раунде. Промах — без штрафа.</p>
+                    <p style="margin-top:8px"><strong>Победа:</strong> первым набрать 5 очков, либо вести по очкам после 7 раундов. Ничья — овертайм.</p>
+                </div>
+            </details>
             <div id="stake-picker-host" class="sp-stake-host"></div>
         </div>
     </div>
 
     <!-- DEMO INTRO -->
     <div id="screen-demo" class="screen">
-        <div class="center-content">
-            <h2 style="letter-spacing:.08em">ДЭМО РЕЖИМ</h2>
-            <p style="max-width:340px;text-align:center;opacity:.92;line-height:1.5;margin-top:6px">
-                Тренировочная игра против бота в стиле Obstacle Race.
-                Без TON-ставок: можешь спокойно тестировать стратегии.
-            </p>
-            <button class="btn primary" id="btn-demo-play" style="margin-top:14px">Играть</button>
-            <button class="btn secondary" id="btn-demo-back" style="margin-top:8px">Назад</button>
+        <div class="sp-start-wrap">
+            <h1 class="sp-start-title">OBSTACLE RACE</h1>
+            <p class="sp-start-sub">Тренировочная игра в стиле Obstacle Race. Без TON-ставок — отрабатывай тактику и реакцию.</p>
+            <div class="sp-stake-host">
+                <button class="sp-play-btn" id="btn-demo-play">Играть</button>
+                <button class="sp-back-btn" id="btn-demo-back">Назад</button>
+            </div>
         </div>
     </div>
 

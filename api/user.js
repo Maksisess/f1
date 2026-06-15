@@ -2157,6 +2157,19 @@ async function pvpEnforceSingleActiveRoom(gameKey, tgId, playerName, keepRoomId)
   await pvpCancelRooms(ids);
 }
 
+// Отменяет ТОЛЬКО собственные waiting-комнаты игрока (по tg_user_id) в игре, кроме keepRoomId.
+// В отличие от pvpEnforceSingleActiveRoom не трогает active-матчи и не матчит по имени —
+// безопасно для денежной зоны (waiting-комнаты не имеют залоченной ставки).
+async function pvpCancelUserWaitingRooms(tgId, gameKey, keepRoomId) {
+  const rows = await sb(
+    `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=eq.waiting&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id&limit=100`
+  );
+  const ids = (rows || [])
+    .map((r) => Number(r.id))
+    .filter((id) => Number.isInteger(id) && id > 0 && Number(id) !== Number(keepRoomId));
+  await pvpCancelRooms(ids);
+}
+
 function pvpNormalizeTrapList(values, total, expectedCount) {
   const arr = Array.isArray(values) ? values : [];
   const max = Math.max(1, Number(total) || 1);
@@ -3418,6 +3431,35 @@ function pvpApplyMove(room, tgId, move) {
   return next;
 }
 
+// Возвращает ЖИВУЮ активную PvP-комнату игрока (в любой или конкретной игре) либо null.
+// Перед возвратом догоняет матч по таймеру и финализирует: заброшенный/доигранный матч
+// превращается в finished и НЕ считается активным. Используется и для баннера «вернуться
+// в игру», и как гард в матчмейкинге, чтобы новый поиск не уничтожал/не рефандил живой матч.
+async function pvpFindLiveActiveRoomForUser(tgId, gameKey = null) {
+  const gameFilter = gameKey ? `&game_key=eq.${encodeURIComponent(gameKey)}` : "";
+  const rows = await sb(
+    `pvp_rooms?status=eq.active&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})${gameFilter}&select=id,game_key,status,state_json,stake_ton,stake_settled_at,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,created_at,updated_at&order=updated_at.desc&limit=1`
+  );
+  let room = rows?.[0] || null;
+  if (room && String(room.status) === "active") {
+    try {
+      const adv = pvpAdvanceCatchUp(room);
+      if (adv.changed) {
+        const patched = await sb(
+          `pvp_rooms?id=eq.${room.id}&updated_at=eq.${encodeURIComponent(room.updated_at)}`,
+          { method: "PATCH", body: { state_json: adv.state, updated_at: new Date().toISOString() }, prefer: "return=representation" }
+        );
+        if (patched?.length) room = patched[0];
+      }
+      room = await finalizePvpRoomIfNeeded(room);
+    } catch (e) {
+      console.error("pvpFindLiveActiveRoomForUser catch-up:", e?.message || e);
+    }
+    if (String(room?.status || "") !== "active") room = null;
+  }
+  return room;
+}
+
 async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -3427,19 +3469,22 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
   const wantedStakes = normalizeStakeOptions(stakeOptions);
   await assertUserCanQueueStake(tgId, wantedStakes);
 
+  // Гард: у игрока уже есть живой активный матч — не создаём/не присоединяемся/не отменяем,
+  // чтобы не было двойных матчей и тихого рефанда чужого матча. Клиент должен сначала вернуть
+  // игрока в матч или провести явную сдачу (pvpLeaveRoom).
+  const liveActive = await pvpFindLiveActiveRoomForUser(tgId);
+  if (liveActive) throw new Error("Сейчас идёт другой матч");
+
   const ALL_GAMES = ["frog_hunt", "obstacle_race", "super_penalty", "basketball"];
 
-  // Ищем любую открытую комнату по ставке во всех играх
-  for (const stake of wantedStakes) {
+  // Ищем любую открытую комнату по ставке во всех играх и присоединяемся к старейшей подходящей.
+  const tryJoinAny = async () => {
     const waiting = await sb(
       `pvp_rooms?status=eq.waiting&player2_tg_user_id=is.null&player1_tg_user_id=neq.${encodeURIComponent(tgId)}&game_key=in.(frog_hunt,obstacle_race,super_penalty,basketball)&select=*&order=created_at.asc&limit=20`
     );
     for (const room of waiting || []) {
-      if (!ALL_GAMES.includes(String(room.game_key || ""))) continue;
-      const roomStakes = stakeOptionsFromRoom(room);
-      if (!roomStakes.some(s => Math.abs(s - stake) < 0.001)) continue;
-      // Нашли подходящую комнату — присоединяемся
-      const sharedStake = stake;
+      const sharedStake = pickSharedStake(wantedStakes, stakeOptionsFromRoom(room));
+      if (!sharedStake) continue;
       const state = pvpWrapWithAcceptPhase(
         pvpDefaultStateForGame(room.game_key, room.player1_tg_user_id, tgId),
         { player2_tg_user_id: tgId }
@@ -3447,7 +3492,11 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
       const joined = await pvpTryJoinWaitingWithStake(room, tgId, safeName, { ...state, phaseAtMs: Date.now() }, sharedStake);
       if (joined) return joined;
     }
-  }
+    return null;
+  };
+
+  const joinedBeforeCreate = await tryJoinAny();
+  if (joinedBeforeCreate) return joinedBeforeCreate;
 
   // Нет открытых комнат — создаём в случайной игре с меткой is_random
   const randomGame = ALL_GAMES[Math.floor(Math.random() * ALL_GAMES.length)];
@@ -3478,9 +3527,18 @@ async function pvpFindMatchRandom(initData, playerName, stakeOptions) {
   });
   const ownRoom = created?.[0];
   if (!ownRoom) throw new Error("Failed to create queue room");
-  // Чистим дубли только других игр, сохраняем свою комнату
+
+  // Анти-race: если параллельно появилась подходящая комната, заходим в неё и отменяем свой дубль
+  // (как в pvpFindMatch). Иначе два одновременных random-поиска зависли бы каждый со своей комнатой.
+  const joinedAfterCreate = await tryJoinAny();
+  if (joinedAfterCreate && Number(joinedAfterCreate.id) !== Number(ownRoom.id)) {
+    await pvpCancelRooms([ownRoom.id]);
+    return joinedAfterCreate;
+  }
+
+  // Чистим только свои WAITING-дубли во всех играх (активные матчи не трогаем — см. гард выше)
   for (const g of ALL_GAMES) {
-    await pvpEnforceSingleActiveRoom(g, tgId, safeName, ownRoom.id).catch(() => {});
+    await pvpCancelUserWaitingRooms(tgId, g, ownRoom.id).catch(() => {});
   }
   return ownRoom;
 }
@@ -3497,6 +3555,12 @@ async function pvpFindMatch(initData, gameKey, playerName, stakeOptions) {
     throw new Error("PvP is enabled only for frog_hunt, obstacle_race, super_penalty and basketball");
   }
   await assertUserCanQueueStake(tgId, wantedStakes);
+
+  // Гард: у игрока уже есть живой активный матч (в любой игре) — не начинаем новый поиск и не
+  // отменяем/рефандим его. Клиент сначала возвращает игрока в матч или проводит явную сдачу.
+  const liveActive = await pvpFindLiveActiveRoomForUser(tgId);
+  if (liveActive) throw new Error("Сейчас идёт другой матч");
+
   await pvpPruneUserNonActiveRooms(tgId, key);
   await pvpEnforceSingleActiveRoom(key, tgId, safeName, 0);
 
@@ -4896,30 +4960,9 @@ module.exports = async (req, res) => {
       if (!verified.ok) return res.status(401).json({ ok: false, error: verified.error });
       const tgId = String(verified.user.id);
       const gameKey = req.body?.gameKey ? String(req.body.gameKey) : null;
-      const gameFilter = gameKey ? `&game_key=eq.${encodeURIComponent(gameKey)}` : "";
-      const rows = await sb(
-        `pvp_rooms?status=eq.active&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})${gameFilter}&select=id,game_key,status,state_json,stake_ton,stake_settled_at,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,created_at,updated_at&order=updated_at.desc&limit=1`
-      );
-      let room = rows?.[0] || null;
-      if (room && String(room.status) === "active") {
-        // Догон по таймеру + финализация (как при заходе в матч): заброшенные и бот-матчи
-        // доигрываются и не висят, даже если игрок открыл только лобби. Не критично для
-        // ответа — при ошибке просто отдаём комнату как есть.
-        try {
-          const adv = pvpAdvanceCatchUp(room);
-          if (adv.changed) {
-            const patched = await sb(
-              `pvp_rooms?id=eq.${room.id}&updated_at=eq.${encodeURIComponent(room.updated_at)}`,
-              { method: "PATCH", body: { state_json: adv.state, updated_at: new Date().toISOString() }, prefer: "return=representation" }
-            );
-            if (patched?.length) room = patched[0];
-          }
-          room = await finalizePvpRoomIfNeeded(room);
-        } catch (e) {
-          console.error("pvpGetMyActiveRoom catch-up:", e?.message || e);
-        }
-        if (String(room?.status || "") !== "active") room = null;
-      }
+      // Догон по таймеру + финализация (как при заходе в матч): заброшенные и бот-матчи
+      // доигрываются и не висят, даже если игрок открыл только лобби.
+      const room = await pvpFindLiveActiveRoomForUser(tgId, gameKey);
       const slim = room
         ? {
             id: room.id,
@@ -5095,7 +5138,7 @@ module.exports = async (req, res) => {
       code = 400;
     } else if (msg === "Forbidden") {
       code = 403;
-    } else if (msg === "Room update conflict") {
+    } else if (msg === "Room update conflict" || msg === "Сейчас идёт другой матч") {
       code = 409;
     }
     return res.status(code).json({ ok: false, error: msg });

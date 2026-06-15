@@ -1444,7 +1444,7 @@
           </div>
           <div style="margin-top:14px" class="row">
             <button class="btn primary" id="openFrogHuntPlay" style="flex:1">Играть</button>
-            <button class="btn ghost" id="openFrogHuntDemo" style="flex:1">Дэмо</button>
+            <button class="btn ghost" id="openFrogHuntDemo" style="flex:1">Демо</button>
           </div>
         </div>
 
@@ -1472,7 +1472,7 @@
           </div>
           <div style="margin-top:14px" class="row">
             <button class="btn primary" id="openObstacleRacePlay" style="flex:1">Играть</button>
-            <button class="btn ghost" id="openObstacleRaceDemo" style="flex:1">Дэмо</button>
+            <button class="btn ghost" id="openObstacleRaceDemo" style="flex:1">Демо</button>
           </div>
         </div>
 
@@ -1500,7 +1500,7 @@
           </div>
           <div style="margin-top:14px" class="row">
             <button class="btn primary" id="openPenaltyPlay" style="flex:1">Играть</button>
-            <button class="btn ghost" id="openPenaltyDemo" style="flex:1">Дэмо</button>
+            <button class="btn ghost" id="openPenaltyDemo" style="flex:1">Демо</button>
           </div>
         </div>
 
@@ -1528,7 +1528,7 @@
           </div>
           <div style="margin-top:14px" class="row">
             <button class="btn primary" id="openBasketballPlay" style="flex:1">Играть</button>
-            <button class="btn ghost" id="openBasketballDemo" style="flex:1">Дэмо</button>
+            <button class="btn ghost" id="openBasketballDemo" style="flex:1">Демо</button>
           </div>
         </div>
       </section>
@@ -2048,6 +2048,25 @@
     </div>
   </div>
 
+
+  <!-- Модалка: у игрока есть активный матч (при попытке начать любую игру) -->
+  <div id="activeMatchModal" class="modalWrap">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>У тебя есть активная игра</h3>
+        <button class="modal-close" id="activeMatchClose" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <p class="muted" id="activeMatchText">Сейчас идёт матч. Вернись в него или сдайся — при сдаче ставка проиграется.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button class="btn primary" id="activeMatchContinue">Продолжить матч</button>
+        <button class="btn ghost" id="activeMatchSurrender" style="color:#ff7a7a">Сдаться</button>
+      </div>
+    </div>
+  </div>
 
   <div id="rulesModal" class="modalWrap">
     <div class="modal modal-card--rules">
@@ -2827,12 +2846,12 @@
     const launchMode = String(mode || "").toLowerCase() === "demo" ? "demo" : "play";
     return `${basePath}?launch=${encodeURIComponent(launchMode)}`;
   }
-  document.getElementById("openFrogHuntPlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/frog-hunt/", "play"); };
-  document.getElementById("openFrogHuntDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/frog-hunt/", "demo"); };
-  document.getElementById("openObstacleRacePlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/obstacle-race/", "play"); };
-  document.getElementById("openObstacleRaceDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/obstacle-race/", "demo"); };
-  document.getElementById("openPenaltyPlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/super-penallity/", "play"); };
-  document.getElementById("openPenaltyDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/super-penallity/", "demo"); };
+  document.getElementById("openFrogHuntPlay").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/frog-hunt/", "play"); }); };
+  document.getElementById("openFrogHuntDemo").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/frog-hunt/", "demo"); }); };
+  document.getElementById("openObstacleRacePlay").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/obstacle-race/", "play"); }); };
+  document.getElementById("openObstacleRaceDemo").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/obstacle-race/", "demo"); }); };
+  document.getElementById("openPenaltyPlay").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/super-penallity/", "play"); }); };
+  document.getElementById("openPenaltyDemo").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/super-penallity/", "demo"); }); };
   document.getElementById("openRandomGame").onclick = ()=>{ hImpact("light"); openRandomGamePage(); };
 
   // ===== RANDOM GAME =====
@@ -2893,6 +2912,95 @@
       if(gp && !gp.classList.contains("hidden") && hasTgAuth) refreshActiveGameBanner();
     });
   })();
+
+  // ===== ГАРД АКТИВНОГО МАТЧА — модалка «Продолжить/Сдаться» перед запуском любой игры =====
+  // Если у игрока есть живой активный PvP-матч, нельзя молча начать новую игру (это уничтожило бы
+  // матч соперника / дало бы рефанд-эксплойт на сервере). Показываем выбор: вернуться в матч или
+  // явно сдаться (pvpLeaveRoom = проигрыш ставки), и только потом выполняем исходное действие.
+  let activeMatchModalRoom = null;
+  let activeMatchModalProceed = null;
+  let activeMatchModalBusy = false;
+  let guardBusy = false; // защита от двойного клика по кнопкам запуска во время async-проверки
+
+  async function guardActiveMatchThen(proceed){
+    if(guardBusy) return;
+    guardBusy = true;
+    if(!hasTgAuth){ guardBusy = false; proceed(); return; }
+    let room = null;
+    try{
+      const data = await apiJson("/api/user", { action: "pvpGetMyActiveRoom", initData: tgInitData }, { timeoutMs: 8000 });
+      room = data && data.room ? data.room : null;
+    }catch(e){ room = null; }
+    if(room && RANDOM_GAME_URLS[room.game_key]){
+      // guardBusy остаётся true: модалка перекрывает кнопки запуска; сбрасывается при её закрытии.
+      showActiveMatchModal(room, proceed);
+    }else{
+      guardBusy = false;
+      proceed();
+    }
+  }
+
+  function showActiveMatchModal(room, proceed){
+    activeMatchModalRoom = room;
+    activeMatchModalProceed = proceed;
+    activeMatchModalBusy = false;
+    const nm = ACTIVE_GAME_NAMES[room.game_key] || "Матч";
+    const stake = Number(room.stake_ton || 0);
+    const t = document.getElementById("activeMatchText");
+    if(t){
+      t.textContent = (stake > 0
+        ? ("Идёт матч «" + nm + "» · ставка " + stake + " TON. ")
+        : ("Идёт матч «" + nm + "». "))
+        + "Вернись в него или сдайся — при сдаче ставка проиграется.";
+    }
+    const surr = document.getElementById("activeMatchSurrender");
+    if(surr) surr.textContent = "Сдаться";
+    const m = document.getElementById("activeMatchModal");
+    if(m) m.classList.add("show");
+  }
+
+  function hideActiveMatchModal(){
+    const m = document.getElementById("activeMatchModal");
+    if(m) m.classList.remove("show");
+    activeMatchModalRoom = null;
+    activeMatchModalProceed = null;
+    activeMatchModalBusy = false;
+    guardBusy = false;
+  }
+
+  (function wireActiveMatchModal(){
+    const cont = document.getElementById("activeMatchContinue");
+    const surr = document.getElementById("activeMatchSurrender");
+    const close = document.getElementById("activeMatchClose");
+    const wrap = document.getElementById("activeMatchModal");
+    if(cont) cont.onclick = ()=>{
+      if(!activeMatchModalRoom) return;
+      const base = RANDOM_GAME_URLS[activeMatchModalRoom.game_key];
+      if(base) window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(activeMatchModalRoom.id);
+    };
+    if(surr) surr.onclick = async ()=>{
+      if(!activeMatchModalRoom || activeMatchModalBusy) return;
+      activeMatchModalBusy = true;
+      const proceed = activeMatchModalProceed;
+      const rid = activeMatchModalRoom.id;
+      surr.textContent = "Сдаюсь...";
+      try{
+        await apiJson("/api/user", { action: "pvpLeaveRoom", initData: tgInitData, roomId: rid });
+      }catch(e){
+        activeMatchModalBusy = false;
+        surr.textContent = "Сдаться";
+        toast("Не удалось сдаться, попробуй снова", 2500);
+        return;
+      }
+      activeGameRoom = null;
+      refreshActiveGameBanner();
+      hideActiveMatchModal();
+      if(typeof proceed === "function") proceed();
+    };
+    if(close) close.onclick = ()=> hideActiveMatchModal();
+    if(wrap) wrap.addEventListener("click", (e)=>{ if(e.target === wrap) hideActiveMatchModal(); });
+  })();
+
   let randomSelectedStakes = [];
   let randomPollTimer = null;
   let randomRoomId = null;
@@ -2943,9 +3051,14 @@
     if (playBtn) playBtn.disabled = randomSelectedStakes.length === 0;
   }
 
-  document.getElementById("randomPlayBtn").onclick = async () => {
+  document.getElementById("randomPlayBtn").onclick = () => {
     if (!randomSelectedStakes.length) return;
     hImpact("light");
+    guardActiveMatchThen(startRandomSearch);
+  };
+
+  async function startRandomSearch() {
+    if (!randomSelectedStakes.length) return;
     document.getElementById("randomPlayBtn").style.display = "none";
     document.getElementById("randomBackBtn").style.display = "none";
     document.getElementById("randomStakeGrid").style.display = "none";
@@ -3039,8 +3152,8 @@
     renderRandomStakePicker();
   }
 
-  document.getElementById("openBasketballPlay").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/basketball-pvp/", "play"); };
-  document.getElementById("openBasketballDemo").onclick = ()=>{ hImpact("light"); window.location.href = gameLaunchUrl("/basketball-pvp/", "demo"); };
+  document.getElementById("openBasketballPlay").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/basketball-pvp/", "play"); }); };
+  document.getElementById("openBasketballDemo").onclick = ()=>{ hImpact("light"); guardActiveMatchThen(()=>{ window.location.href = gameLaunchUrl("/basketball-pvp/", "demo"); }); };
 
   function setProfileStatsPlaceholder(noSession){
     [
@@ -3539,7 +3652,7 @@
         ? (String(m.winner_tg_user_id) === myTgId ? "Победа" : "Поражение")
         : (myScore === oppScore ? "Ничья" : (myScore > oppScore ? "Победа" : "Поражение"));
       const resultColor = result === "Победа" ? "var(--accent)" : (result === "Ничья" ? "var(--text2)" : "var(--danger)");
-      const modeLabel = m.mode === "bot" ? "ДЭМО" : "PvP";
+      const modeLabel = m.mode === "bot" ? "ДЕМО" : "PvP";
       const stakeTonNum = Number(details.stakeTon);
       const hasStake = Number.isFinite(stakeTonNum) && stakeTonNum > 0;
       
@@ -3564,7 +3677,7 @@
           tonColor = "var(--danger)";
         }
       }else if(m.mode === "bot"){
-        tonLine = "ДЭМО режим (против бота)";
+        tonLine = "ДЕМО режим (против бота)";
       }else if(hasStake){
         const absStake = formatBalanceAmountOnly(String(stakeTonNum));
         if(result === "Победа"){

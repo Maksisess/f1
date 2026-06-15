@@ -1349,8 +1349,10 @@ function onOppXray(msg) {
         setTimeout(function() { scanLine.remove(); }, 700);
     }
 
-    if (msg && Number.isInteger(Number(msg.point))) {
-        var oppDot = $('dot-1-' + Number(msg.point));
+    // 1d: не раскрываем, какую точку соперник просканировал (это его инфо). Глаз ставим над
+    // ТЕКУЩЕЙ точкой соперника — игрок видит лишь сам факт, что соперник применил рентген в этом ходу.
+    if (currentStep >= 0 && currentStep < trackDots) {
+        var oppDot = $('dot-1-' + currentStep);
         if (oppDot) {
             setDotAbility(oppDot, 'xray', '👁');
             playAbilityBurst(oppDot, '👁', 'xray');
@@ -1848,11 +1850,6 @@ async function onRoundResult(msg) {
     // Иконки способностей вместо ✓/✗ когда способность использована
     function dotIcon(r, isOpp) {
         if (r.usedAbility === 'double') return '⚡';
-        if (r.usedAbility === 'sabotage') return '💀';
-        if (r.usedAbility === 'xray') return '👁';
-        // Рентген не приходит в usedAbility — используем флаги
-        if (!isOpp && myUsedXrayThisRound) return '👁';
-        if (isOpp && oppUsedXrayThisRound) return '👁';
         if (r.sabotaged) return '💀'; // заблокировано саботажем — показываем череп
         return r.points > 0 ? '\u2713' : '\u2717';
     }
@@ -1869,6 +1866,7 @@ async function onRoundResult(msg) {
             myDot.classList.add(myOk ? 'success' : 'fail');
             setDotLabel(myDot, dotIcon(my, false));
         }
+        if (my.sabotaged) myDot.classList.add('sabotaged'); // красный череп у пострадавшего
     }
     if (oppDot) {
         oppDot.classList.remove('current', 'xray-scanned-opp');
@@ -1886,6 +1884,7 @@ async function onRoundResult(msg) {
             oppDot.classList.add(oppOk ? 'success' : 'fail');
             setDotLabel(oppDot, dotIcon(opp, true));
         }
+        if (opp.sabotaged) oppDot.classList.add('sabotaged'); // красный череп у пострадавшего
     }
 
     // Avatar animations
@@ -1932,7 +1931,8 @@ async function onRoundResult(msg) {
         playAbilityBurst(oppDot, '⚡', oppDoubleKind);
     }
     if (my.usedAbility === 'sabotage') {
-        setDotAbility(oppDot, my.sabotageHit ? 'sabotage-success' : 'sabotage-backfire', '💀');
+        // Череп у пострадавшего соперника — красный (sabotage-victim), не зелёный.
+        setDotAbility(oppDot, my.sabotageHit ? 'sabotage-victim' : 'sabotage-backfire', '💀');
     }
     if (opp.usedAbility === 'sabotage') {
         var oppSabKind = opp.sabotageHit ? 'sabotage-victim' : 'sabotage-backfire';

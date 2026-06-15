@@ -252,20 +252,12 @@ function ensureStakePicker() {
   if (!mount || $('stakePickerWrap')) return;
   var wrap = document.createElement('div');
   wrap.id = 'stakePickerWrap';
-  wrap.style.marginTop = '6px';
-  wrap.style.width = '100%';
-  wrap.style.maxWidth = '340px';
-  wrap.style.marginLeft = 'auto';
-  wrap.style.marginRight = 'auto';
-  wrap.style.display = 'flex';
-  wrap.style.flexDirection = 'column';
-  wrap.style.alignItems = 'center';
-  wrap.style.transform = 'translateY(-22px)';
+  wrap.className = 'sp-stake-host';
   wrap.innerHTML =
-    '<div style="font-size:12px;color:#9aa3b2;margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em;text-align:center;width:100%">Выбери ставки TON</div>' +
-    '<div id="stakeGridFrog" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;width:100%"></div>' +
-    '<button type="button" id="stakePlayBtnFrog" class="btn primary" style="margin-top:12px">Играть</button>' +
-    '<button type="button" id="stakeBackBtnFrog" class="btn btn-secondary" style="margin-top:8px">Назад</button>';
+    '<p class="sp-stake-label">Выбери ставки TON</p>' +
+    '<div id="stakeGridFrog" class="sp-stake-grid"></div>' +
+    '<button type="button" id="stakePlayBtnFrog" class="sp-play-btn">Играть</button>' +
+    '<button type="button" id="stakeBackBtnFrog" class="sp-back-btn">Назад</button>';
   mount.appendChild(wrap);
   // Кнопка «Назад» теперь внизу под «Играть» (как в пенальти); прячем верхнюю угловую ссылку.
   var topBackLink = document.querySelector('#screen-start .back-link');
@@ -274,17 +266,8 @@ function ensureStakePicker() {
   ALLOWED_STAKES.forEach(function(stake) {
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn ghost';
+    b.className = 'sp-stake-btn';
     b.dataset.stake = String(stake);
-    b.style.height = '74px';
-    b.style.padding = '0 6px';
-    b.style.fontWeight = '900';
-    b.style.fontSize = '13px';
-    b.style.display = 'flex';
-    b.style.alignItems = 'center';
-    b.style.justifyContent = 'center';
-    b.style.whiteSpace = 'nowrap';
-    b.style.borderRadius = '14px';
     b.textContent = stake + ' TON';
     b.onclick = function() {
       var n = Number(b.dataset.stake);
@@ -311,7 +294,7 @@ function ensureStakePicker() {
 function setStakePickerVisible(v){
   var wrap = $('stakePickerWrap');
   if(!wrap) return;
-  wrap.style.display = v ? 'flex' : 'none';
+  wrap.style.display = v ? 'block' : 'none';
   var rules = document.querySelector('#screen-start .rules-block');
   if (rules) rules.style.display = v ? 'none' : '';
   var logo = document.querySelector('#screen-start .logo-container');
@@ -332,10 +315,8 @@ function renderStakePicker() {
     var n = Number(b.dataset.stake);
     var on = selectedStakeOptions.indexOf(n) >= 0;
     var blocked = currentBalanceTon < n;
-    b.style.borderColor = blocked ? 'rgba(248,113,113,.8)' : (on ? '#78f5b5' : 'rgba(255,255,255,.18)');
-    b.style.background = blocked ? 'rgba(239,68,68,.18)' : (on ? 'rgba(35,197,94,.22)' : 'rgba(255,255,255,.08)');
-    b.style.color = blocked ? '#fecaca' : (on ? '#d6ffe9' : '#fff');
-    b.style.opacity = blocked ? '0.85' : '1';
+    b.classList.toggle('is-blocked', blocked);
+    b.classList.toggle('is-active', on && !blocked);
   }
 }
 
