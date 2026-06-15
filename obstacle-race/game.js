@@ -179,16 +179,18 @@ document.addEventListener('DOMContentLoaded', () => {
     $('btn-run').onclick = () => makeMove('run');
     $('btn-jump').onclick = () => makeMove('jump');
     $('btn-ability').onclick = toggleAbility;
+    // Закрытие приложения не завершает активный матч: отменяем только очередь ожидания.
+    // pvpCancelQueue не форфейтит живую игру — она доигрывается по таймеру на сервере.
     window.addEventListener('pagehide', function() {
         presenceLeaveNet();
         if (!isBotMode && pvpRoomId && tgInitData) {
-            beaconPvpLeaveRoom(pvpRoomId);
+            beaconPvpCancelQueue(pvpRoomId);
         }
     });
     window.addEventListener('beforeunload', function() {
         presenceLeaveNet();
         if (!isBotMode && pvpRoomId && tgInitData) {
-            beaconPvpLeaveRoom(pvpRoomId);
+            beaconPvpCancelQueue(pvpRoomId);
         }
     });
 

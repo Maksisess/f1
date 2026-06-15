@@ -168,8 +168,10 @@ document.addEventListener('DOMContentLoaded', function() {
     isBotMode ? startSearchBot() : startSearchOnline();
   };
   $('btn-menu').onclick = function() { window.location.href = '/'; };
-  window.addEventListener('pagehide', function() { leavePvpQueue(); presenceLeaveNet(); });
-  window.addEventListener('beforeunload', function() { leavePvpQueue(); presenceLeaveNet(); });
+  // Закрытие приложения не завершает активный матч: отменяем только очередь ожидания.
+  // pvpCancelQueue не форфейтит живую игру — она доигрывается по таймеру на сервере.
+  window.addEventListener('pagehide', function() { beaconPvpCancelQueue(pvpRoomId); presenceLeaveNet(); });
+  window.addEventListener('beforeunload', function() { beaconPvpCancelQueue(pvpRoomId); presenceLeaveNet(); });
 
   var launchMode = String(urlParams.get('launch') || '').toLowerCase();
   if (launchMode === 'demo') {

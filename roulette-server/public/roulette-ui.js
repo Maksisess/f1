@@ -398,22 +398,15 @@ class RouletteUI {
   }
 
   openBetModal() {
-    const openBtn = document.getElementById('rouletteBetBtn');
-    if (!openBtn || openBtn.disabled) return;
+    // Inline-режим: отдельной модалки нет — секция ставки всегда на экране рулетки.
+    // Просто синкаем дисплей суммы и блокировки степпера/пресетов.
     this.primeAudioOnGesture();
-    const m = document.getElementById('rouletteBetModal');
-    if (!m) return;
-    m.classList.add('show');
-    m.setAttribute('aria-hidden', 'false');
     this.syncStakeDisplay();
     this.refreshStakeStepperLockFromBetBtn();
   }
 
   closeBetModal() {
-    const m = document.getElementById('rouletteBetModal');
-    if (!m) return;
-    m.classList.remove('show');
-    m.setAttribute('aria-hidden', 'true');
+    // Inline-режим: секция ставки не скрывается.
   }
 
   init() {

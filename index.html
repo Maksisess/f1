@@ -655,6 +655,31 @@
       display:flex;justify-content:space-between;align-items:center;gap:12px;
     }
 
+    .activeGameBanner{
+      display:flex; align-items:center; gap:12px; width:100%;
+      margin:0 0 12px 0; padding:14px 16px; border-radius:16px;
+      text-decoration:none; color:#fff; cursor:pointer;
+      background:linear-gradient(135deg, rgba(140,255,193,.22), rgba(99,230,190,.10));
+      border:1px solid rgba(140,255,193,.45);
+      box-shadow:0 8px 24px rgba(99,230,190,.15);
+      -webkit-tap-highlight-color:transparent;
+    }
+    .activeGameBanner.hidden{display:none}
+    .activeGameBanner:active{transform:scale(.99)}
+    .activeGameBanner__pulse{
+      width:10px; height:10px; border-radius:50%; background:#8CFFC1; flex-shrink:0;
+      animation:agbPulse 1.6s infinite;
+    }
+    @keyframes agbPulse{
+      0%{box-shadow:0 0 0 0 rgba(140,255,193,.6)}
+      70%{box-shadow:0 0 0 10px rgba(140,255,193,0)}
+      100%{box-shadow:0 0 0 0 rgba(140,255,193,0)}
+    }
+    .activeGameBanner__body{display:flex; flex-direction:column; gap:2px; flex:1; min-width:0}
+    .activeGameBanner__title{font-weight:950; font-size:15px; letter-spacing:.2px}
+    .activeGameBanner__sub{font-size:12px; color:var(--text2, rgba(255,255,255,.6)); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .activeGameBanner__cta{font-size:18px; color:#8CFFC1; flex-shrink:0; font-weight:900}
+
     .gameCardTitle{
       display:flex;
       align-items:center;
@@ -953,7 +978,7 @@
     /* Rolls-style roulette (donut wheel) */
     .rolls-page{
       --rolls-vpad: clamp(10px, 2.4vw, 20px);
-      --rolls-wheel: min(380px, calc(100vw - 20px), max(112px, calc(100dvh - clamp(255px, 56dvh, 395px))));
+      --rolls-wheel: min(380px, calc(100vw - 20px), max(112px, calc(100dvh - clamp(330px, 64dvh, 510px))));
       padding-bottom:clamp(12px,2.5vw,22px);
       max-width:100%;
       overflow-x:hidden;
@@ -1035,7 +1060,7 @@
     }
     .rolls-public-history__filter.is-active{border-color:rgba(105,240,174,.55);background:rgba(105,240,174,.12);color:#cfffdf}
     .rolls-public-history__list{flex:1;min-height:120px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px}
-    #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(210px,38dvh,320px))))}
+    #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(290px,48dvh,430px))))}
     #page-roulette #rollsMainGameView{
       display:flex;
       flex-direction:column;
@@ -1044,8 +1069,8 @@
     }
     #page-roulette .rolls-pcards{max-height:clamp(100px,38dvh,min(300px,52dvh));margin-top:0}
     .rolls-bet-modal-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
-    #rouletteBetModal .rolls-bet-modal-card{margin-bottom:0!important;box-shadow:none}
-    #rouletteBetModal .rolls-bet-sheet{max-height:min(92dvh, calc(var(--app-vh, 100vh) - 36px))}
+    #page-roulette .rolls-bet-modal-card{margin-bottom:0!important;box-shadow:none}
+    #page-roulette .rolls-bet-sheet{max-height:min(92dvh, calc(var(--app-vh, 100vh) - 36px))}
     .rolls-pointer{position:absolute;left:50%;top:0;transform:translateX(-50%);z-index:5;width:0;height:0;border-left:clamp(10px,3vw,14px) solid transparent;border-right:clamp(10px,3vw,14px) solid transparent;border-top:clamp(14px,4vw,18px) solid #fff;filter:drop-shadow(0 2px 0 rgba(0,0,0,.5))}
     .rolls-wheel-spin{position:absolute;inset:0;border-radius:50%;transform-origin:50% 50%;will-change:transform;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55)}
     .rolls-wheel-conic{position:absolute;inset:0;border-radius:50%}
@@ -1110,44 +1135,44 @@
     .players-list{display:flex;flex-direction:column;gap:10px}
     .action-section{margin-bottom:20px}
     .action-card{padding:16px;border-radius:20px;background:var(--glass-bg);border:1px solid var(--glass-border);backdrop-filter:blur(var(--blur));box-shadow:var(--shadow)}
-    #rouletteBetModal .action-card{padding:clamp(10px,3vw,16px);border-radius:clamp(14px,4vw,20px)}
+    #page-roulette .action-card{padding:clamp(10px,3vw,16px);border-radius:clamp(14px,4vw,20px)}
     .action-label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:10px}
-    #rouletteBetModal .action-label{font-size:clamp(10px,2.8vw,12px);margin-bottom:clamp(6px,2vw,10px)}
+    #page-roulette .action-label{font-size:clamp(10px,2.8vw,12px);margin-bottom:clamp(6px,2vw,10px)}
     .rolls-stake-wrap{margin-bottom:12px}
-    #rouletteBetModal .rolls-stake-wrap{margin-bottom:clamp(6px,2vw,12px)}
+    #page-roulette .rolls-stake-wrap{margin-bottom:clamp(6px,2vw,12px)}
     .rolls-stake-row{display:flex;align-items:stretch;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
-    #rouletteBetModal .rolls-stake-row{border-radius:clamp(12px,3.5vw,16px)}
+    #page-roulette .rolls-stake-row{border-radius:clamp(12px,3.5vw,16px)}
     .rolls-stake-side{
       flex:0 0 52px;width:52px;min-height:52px;padding:0;border:none;background:rgba(255,255,255,.08);color:#fff;font-size:26px;font-weight:300;line-height:1;cursor:pointer;
       -webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background .12s ease;
     }
-    #rouletteBetModal .rolls-stake-side{
+    #page-roulette .rolls-stake-side{
       flex-basis:clamp(40px,12vw,52px);width:clamp(40px,12vw,52px);min-height:clamp(42px,12vw,52px);
       font-size:clamp(20px,6vw,26px);
     }
     .rolls-stake-side:active{background:rgba(255,255,255,.16)}
     .rolls-stake-side:disabled{opacity:.45;pointer-events:none}
     .rolls-stake-field{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:52px;padding:10px 8px;border-left:1px solid rgba(255,255,255,.1);border-right:1px solid rgba(255,255,255,.1);background:transparent}
-    #rouletteBetModal .rolls-stake-field{min-height:clamp(42px,12vw,52px);padding:clamp(6px,2vw,10px) clamp(5px,1.5vw,8px)}
+    #page-roulette .rolls-stake-field{min-height:clamp(42px,12vw,52px);padding:clamp(6px,2vw,10px) clamp(5px,1.5vw,8px)}
     .rolls-stake-display{font-variant-numeric:tabular-nums;font-size:22px;font-weight:950;color:#fff;text-align:center}
-    #rouletteBetModal .rolls-stake-display{font-size:clamp(17px,5vw,22px)}
+    #page-roulette .rolls-stake-display{font-size:clamp(17px,5vw,22px)}
     .rolls-stake-ton{font-size:13px;font-weight:800;color:rgba(255,255,255,.5);letter-spacing:.02em}
-    #rouletteBetModal .rolls-stake-ton{font-size:clamp(10px,2.8vw,13px)}
+    #page-roulette .rolls-stake-ton{font-size:clamp(10px,2.8vw,13px)}
     .rolls-preset-wrap{margin-top:4px;margin-bottom:4px}
-    #rouletteBetModal .rolls-preset-wrap{margin-top:0;margin-bottom:0}
+    #page-roulette .rolls-preset-wrap{margin-top:0;margin-bottom:0}
     .rolls-preset-hint{font-size:11px;font-weight:650;color:rgba(255,255,255,.45);line-height:1.35;margin-bottom:10px}
-    #rouletteBetModal .rolls-preset-hint{font-size:clamp(9px,2.5vw,11px);margin-bottom:clamp(4px,1.5vw,8px)}
+    #page-roulette .rolls-preset-hint{font-size:clamp(9px,2.5vw,11px);margin-bottom:clamp(4px,1.5vw,8px)}
     .rolls-preset-rows{display:flex;flex-direction:column;gap:8px;align-items:stretch}
-    #rouletteBetModal .rolls-preset-rows{gap:clamp(4px,1.5vw,8px)}
+    #page-roulette .rolls-preset-rows{gap:clamp(4px,1.5vw,8px)}
     .rolls-preset-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
-    #rouletteBetModal .rolls-preset-row{gap:clamp(4px,1.5vw,8px)}
+    #page-roulette .rolls-preset-row{gap:clamp(4px,1.5vw,8px)}
     .rolls-preset-pill{
       min-width:44px;padding:10px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
       background:rgba(24,26,32,.95);color:var(--accent);font-weight:950;font-size:15px;font-variant-numeric:tabular-nums;
       cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background .12s ease, border-color .12s ease, transform .1s ease;
       box-shadow:0 2px 8px rgba(0,0,0,.2);
     }
-    #rouletteBetModal .rolls-preset-pill{
+    #page-roulette .rolls-preset-pill{
       min-width:clamp(30px,8.5vw,44px);
       padding:clamp(6px,2vw,10px) clamp(8px,2.4vw,14px);
       border-radius:clamp(10px,3vw,14px);
@@ -1155,18 +1180,18 @@
     }
     .rolls-preset-pill:active{background:rgba(140,255,193,.14);border-color:rgba(140,255,193,.28);transform:scale(.97)}
     .rolls-preset-pill:disabled{opacity:.45;pointer-events:none}
-    #rouletteBetModal #rouletteCurrentBetInfo[style]{margin-bottom:clamp(6px,2vw,10px)!important}
-    #rouletteBetModal .action-hint{margin-top:clamp(4px,1.5vw,8px);font-size:clamp(9px,2.6vw,11px)}
+    #page-roulette #rouletteCurrentBetInfo[style]{margin-bottom:clamp(6px,2vw,10px)!important}
+    #page-roulette .action-hint{margin-top:clamp(4px,1.5vw,8px);font-size:clamp(9px,2.6vw,11px)}
     @media (max-height: 640px){
-      .rolls-page{--rolls-wheel:min(300px,calc(100vw - 16px),max(112px,calc(100dvh - 228px)))}
+      .rolls-page{--rolls-wheel:min(300px,calc(100vw - 16px),max(112px,calc(100dvh - 340px)))}
       .rolls-spot{min-height:58px;padding-top:6px;padding-bottom:8px}
     }
     @media (max-height: 560px){
-      .rolls-page{--rolls-wheel:min(260px,calc(100vw - 14px),max(112px,calc(100dvh - 200px)))}
+      .rolls-page{--rolls-wheel:min(260px,calc(100vw - 14px),max(112px,calc(100dvh - 320px)))}
       .rolls-dual{gap:clamp(6px,1.8vw,10px)}
     }
     @media (max-width: 340px){
-      #rouletteBetModal .rolls-preset-pill{min-width:27px;padding-left:6px;padding-right:6px;font-size:11px}
+      #page-roulette .rolls-preset-pill{min-width:27px;padding-left:6px;padding-right:6px;font-size:11px}
     }
     .input-group{position:relative;margin-bottom:12px}
     .bet-input{width:100%;padding:14px 60px 14px 14px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--text);outline:none;font-size:18px;font-weight:700;font-family:inherit}
@@ -1375,6 +1400,15 @@
             </div>
           </div>
         </div>
+
+        <a id="activeGameBanner" class="activeGameBanner hidden" role="button">
+          <span class="activeGameBanner__pulse" aria-hidden="true"></span>
+          <span class="activeGameBanner__body">
+            <span class="activeGameBanner__title">Вернуться в игру</span>
+            <span class="activeGameBanner__sub" id="activeGameBannerSub">У вас активный матч</span>
+          </span>
+          <span class="activeGameBanner__cta" aria-hidden="true">▶</span>
+        </a>
 
         <!-- RANDOM GAME -->
         <div class="glass card" style="margin-bottom:12px; background: linear-gradient(135deg, rgba(140,255,193,0.08), rgba(99,230,190,0.04)); border-color: rgba(140,255,193,0.25);">
@@ -1862,13 +1896,46 @@
         </div>
 
         <div class="rolls-bet-actions">
-          <button type="button" class="btn primary rolls-bet-open-btn" id="rouletteBetBtn" aria-haspopup="dialog" aria-controls="rouletteBetModal">Войти в игру</button>
           <div class="rolls-round-count-pill" role="status" aria-live="polite">
             <div class="rolls-round-count-pill__row">
               <span id="roulettePlayerCount">0</span><span class="rolls-round-count-pill__suffix"> игроков</span>
             </div>
             <div class="rolls-round-count-pill__id" id="rollsRoundIdLabel"></div>
           </div>
+        </div>
+
+        <!-- Inline-ставка (без модалки): степпер + пресеты + подтверждение прямо на экране.
+             #rouletteBetBtn оставлен скрытым флагом — на его .disabled завязан гейтинг контролов. -->
+        <button type="button" id="rouletteBetBtn" hidden aria-hidden="true" style="display:none"></button>
+        <div id="rouletteBetSection" class="action-card rolls-bet-inline">
+          <div id="rouletteCurrentBetInfo" class="your-bet-info hidden" style="margin-bottom:8px;">
+            <div class="info-row">
+              <span class="info-label">Ваша ставка:</span>
+              <span class="info-value"><span id="rouletteYourBet">0.00</span> TON</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Ваш шанс:</span>
+              <span class="info-value info-value--accent"><span id="rouletteYourChance">0.0</span>%</span>
+            </div>
+            <div class="divider" style="margin:8px 0;"></div>
+          </div>
+          <div class="action-label" id="rouletteBetLabel">Сделать ставку</div>
+          <div class="rolls-stake-wrap">
+            <div class="rolls-stake-row" role="group" aria-label="Сумма ставки">
+              <button type="button" class="rolls-stake-side" id="rollsStakeMinus" aria-label="Уменьшить ставку на 0.1 TON">−</button>
+              <div class="rolls-stake-field rolls-stake-display" id="rollsStakeDisplay" role="status" aria-live="polite">0.0<span class="rolls-stake-ton"> TON</span></div>
+              <button type="button" class="rolls-stake-side" id="rollsStakePlus" aria-label="Увеличить ставку на 0.1 TON">+</button>
+            </div>
+            <input type="hidden" id="rouletteBetInput" value="0"/>
+          </div>
+          <div class="rolls-preset-wrap">
+            <div class="rolls-preset-rows" id="rollsPresetRows">
+              <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
+              <div class="rolls-preset-row" id="rollsPresetRowHigh" aria-label="Крупные пресеты"></div>
+            </div>
+          </div>
+          <button type="button" id="rouletteBetConfirmBtn" class="btn primary rolls-bet-confirm" style="width:100%;margin-top:6px;">Войти в раунд</button>
+          <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
         </div>
         <div id="roulettePlayersList" class="rolls-pcards"></div>
         </div>
@@ -1981,52 +2048,6 @@
     </div>
   </div>
 
-  <div id="rouletteBetModal" class="modalWrap modalWrap--sheet" aria-hidden="true">
-    <div class="modal walletModalShell rolls-bet-sheet" role="dialog" aria-modal="true" aria-labelledby="rouletteBetModalTitle">
-      <div class="modal-header" style="margin-bottom:10px;flex-shrink:0">
-        <h2 class="modal-title" id="rouletteBetModalTitle">Ставка</h2>
-        <button type="button" class="modal-close" id="rouletteBetModalClose" aria-label="Закрыть">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div class="rolls-bet-modal-scroll">
-        <div id="rouletteBetSection" class="action-card rolls-bet-modal-card">
-          <div id="rouletteCurrentBetInfo" class="your-bet-info hidden" style="margin-bottom:12px;">
-            <div class="info-row">
-              <span class="info-label">Ваша ставка:</span>
-              <span class="info-value"><span id="rouletteYourBet">0.00</span> TON</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Ваш шанс:</span>
-              <span class="info-value info-value--accent"><span id="rouletteYourChance">0.0</span>%</span>
-            </div>
-            <div class="divider" style="margin:10px 0;"></div>
-          </div>
-          <div class="action-label" id="rouletteBetLabel">Сделать ставку</div>
-          <div class="rolls-stake-wrap">
-            <div class="rolls-stake-row" role="group" aria-label="Сумма ставки">
-              <button type="button" class="rolls-stake-side" id="rollsStakeMinus" aria-label="Уменьшить ставку на 0.1 TON">−</button>
-              <div class="rolls-stake-field rolls-stake-display" id="rollsStakeDisplay" role="status" aria-live="polite">0.0<span class="rolls-stake-ton"> TON</span></div>
-              <button type="button" class="rolls-stake-side" id="rollsStakePlus" aria-label="Увеличить ставку на 0.1 TON">+</button>
-            </div>
-            <input type="hidden" id="rouletteBetInput" value="0"/>
-          </div>
-          <div class="rolls-preset-wrap">
-            <div class="rolls-preset-hint">Быстрый выбор суммы</div>
-            <div class="rolls-preset-rows" id="rollsPresetRows">
-              <div class="rolls-preset-row" id="rollsPresetRow" aria-label="Пресеты"></div>
-              <div class="rolls-preset-row" id="rollsPresetRowHigh" aria-label="Крупные пресеты"></div>
-            </div>
-          </div>
-          <button type="button" id="rouletteBetConfirmBtn" class="btn primary rolls-bet-confirm" style="width:100%;margin-top:4px;">Войти в раунд</button>
-          <div class="action-hint" id="rouletteBetHint">Минимальная ставка: 0.1 TON</div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <div id="rulesModal" class="modalWrap">
     <div class="modal modal-card--rules">
@@ -2595,6 +2616,7 @@
     if(topbar){ topbar.classList.toggle("hidden", isHideChrome); }
     document.body.classList.toggle("no-app-topbar", isHideChrome);
     location.hash = "#"+page;
+    if(page === "games" && hasTgAuth) refreshActiveGameBanner();
     if(page === "profile" && hasTgAuth) loadExternalStats();
     if(page === "referrals" && hasTgAuth) loadReferralStats();
     if(page === "matches" && hasTgAuth){
@@ -2821,6 +2843,56 @@
     super_penalty: "/super-penallity/",
     basketball: "/basketball-pvp/",
   };
+
+  // ===== ACTIVE GAME BANNER — вернуться в активный матч (если игрок вышел из приложения) =====
+  const ACTIVE_GAME_NAMES = {
+    frog_hunt: "Охота на жабу",
+    obstacle_race: "Полоса препятствий",
+    super_penalty: "Супер-пенальти",
+    basketball: "Баскетбол",
+  };
+  let activeGameRoom = null;
+  async function refreshActiveGameBanner(){
+    const banner = document.getElementById("activeGameBanner");
+    if(!banner) return;
+    if(!hasTgAuth){ activeGameRoom = null; banner.classList.add("hidden"); return; }
+    try{
+      const data = await apiJson("/api/user", { action: "pvpGetMyActiveRoom", initData: tgInitData }, { timeoutMs: 8000 });
+      const room = data && data.room ? data.room : null;
+      if(room && RANDOM_GAME_URLS[room.game_key]){
+        activeGameRoom = room;
+        const sub = document.getElementById("activeGameBannerSub");
+        if(sub){
+          const nm = ACTIVE_GAME_NAMES[room.game_key] || "Матч";
+          const stake = Number(room.stake_ton || 0);
+          sub.textContent = stake > 0 ? (nm + " · ставка " + stake + " TON") : nm;
+        }
+        banner.classList.remove("hidden");
+      } else {
+        activeGameRoom = null;
+        banner.classList.add("hidden");
+      }
+    }catch(e){
+      activeGameRoom = null;
+      banner.classList.add("hidden");
+    }
+  }
+  (function wireActiveGameBanner(){
+    const banner = document.getElementById("activeGameBanner");
+    if(!banner) return;
+    banner.addEventListener("click", ()=>{
+      if(!activeGameRoom) return;
+      const base = RANDOM_GAME_URLS[activeGameRoom.game_key];
+      if(!base) return;
+      window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(activeGameRoom.id);
+    });
+    // Обновляем баннер при возврате в приложение, если открыта вкладка «Игры».
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState !== "visible") return;
+      const gp = document.getElementById("page-games");
+      if(gp && !gp.classList.contains("hidden") && hasTgAuth) refreshActiveGameBanner();
+    });
+  })();
   let randomSelectedStakes = [];
   let randomPollTimer = null;
   let randomRoomId = null;

@@ -360,7 +360,10 @@ const GamePage = () => {
         postPvp('pvpCancelQueue');
       }
     };
-    const onPageHidePvp = () => postPvp('pvpLeaveRoom');
+    // Закрытие приложения не завершает активный матч: только отмена очереди ожидания.
+    // pvpCancelQueue не форфейтит живую игру (она доигрывается по таймеру на сервере);
+    // явный выход = форфейт остаётся в cleanup на unmount ниже.
+    const onPageHidePvp = () => postPvp('pvpCancelQueue');
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onPageHidePvp);
     return () => {

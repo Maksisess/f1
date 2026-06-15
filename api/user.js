@@ -2701,24 +2701,19 @@ function pvpAdvanceByTime(room) {
       }
     }
 
+    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
+    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
+    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 35000;
-      const p1Stale = now - p1Beat > staleMs;
-      const p2Stale = now - p2Beat > staleMs;
-      if (p1Stale !== p2Stale && elapsed >= 3000) {
-        const leftSide = p1Stale ? "p1" : "p2";
-        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+      const bothGoneMs = 120000;
+      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
+        const sp1 = Number(asObj(next.scores).p1 || 0);
+        const sp2 = Number(asObj(next.scores).p2 || 0);
         next.phase = "match_over";
         next.phaseAtMs = now;
-        next.leftBy = String(asObj(next.players)[leftSide] || "");
-        next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
-        next.leaveKind = "stale_presence";
-        next.scores = { ...asObj(next.scores) };
-        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
-          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
-        }
-        next.winnerSide = winnerSide;
+        next.leaveKind = "both_abandoned";
+        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
         next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
         next.updatedAt = new Date().toISOString();
         return { changed: true, state: next };
@@ -2869,24 +2864,19 @@ function pvpAdvanceByTime(room) {
         }
       }
     }
+    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
+    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
+    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
     if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 45000;
-      const p1Stale = now - p1Beat > staleMs;
-      const p2Stale = now - p2Beat > staleMs;
-      if (p1Stale !== p2Stale && elapsed >= 3000) {
-        const leftSide = p1Stale ? "p1" : "p2";
-        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+      const bothGoneMs = 120000;
+      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
+        const sp1 = Number(asObj(next.scores).p1 || 0);
+        const sp2 = Number(asObj(next.scores).p2 || 0);
         next.phase = "match_over";
         next.phaseAtMs = now;
-        next.leftBy = String(asObj(next.players)[leftSide] || "");
-        next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
-        next.leaveKind = "stale_presence";
-        next.scores = { ...asObj(next.scores) };
-        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
-          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
-        }
-        next.winnerSide = winnerSide;
+        next.leaveKind = "both_abandoned";
+        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
         next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
         next.updatedAt = new Date().toISOString();
         return { changed: true, state: next };
@@ -3041,24 +3031,19 @@ function pvpAdvanceByTime(room) {
         }
       }
     }
+    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
+    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
+    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
     if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const staleMs = 90000; // 90 сек — защита от ложных срабатываний при кратких разрывах сети
-      const p1Stale = now - p1Beat > staleMs;
-      const p2Stale = now - p2Beat > staleMs;
-      if (p1Stale !== p2Stale && elapsed >= 3000) {
-        const leftSide = p1Stale ? "p1" : "p2";
-        const winnerSide = leftSide === "p1" ? "p2" : "p1";
+      const bothGoneMs = 120000;
+      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
+        const sp1 = Number(asObj(next.scores).p1 || 0);
+        const sp2 = Number(asObj(next.scores).p2 || 0);
         next.phase = "match_over";
         next.phaseAtMs = now;
-        next.leftBy = String(asObj(next.players)[leftSide] || "");
-        next.leftAt = new Date().toISOString();
         next.endedByLeave = true;
-        next.leaveKind = "stale_presence";
-        next.scores = { ...asObj(next.scores) };
-        if (Number(next.scores.p1 || 0) === Number(next.scores.p2 || 0)) {
-          next.scores[winnerSide] = Number(next.scores[winnerSide] || 0) + 1;
-        }
-        next.winnerSide = winnerSide;
+        next.leaveKind = "both_abandoned";
+        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
         next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
         next.updatedAt = new Date().toISOString();
         return { changed: true, state: next };
@@ -3224,25 +3209,17 @@ function pvpAdvanceByTime(room) {
     }
   }
 
-  // If one side stopped polling for long enough, end match by forfeit.
+  // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
+  // доигрывает ходы за отсутствующего. Завершаем по текущему счёту (matchScores) только
+  // если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат ставок).
   if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
-    const staleMs = 45000;
-    const p1Stale = now - p1Beat > staleMs;
-    const p2Stale = now - p2Beat > staleMs;
-    // Protect from false positives during brief network hiccups.
-    if (p1Stale !== p2Stale && elapsed >= 4000) {
-      const leftSide = p1Stale ? "p1" : "p2";
-      const winnerSide = leftSide === "p1" ? "p2" : "p1";
+    const bothGoneMs = 120000;
+    if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 4000) {
       next.phase = "match_over";
       next.phaseAtMs = now;
       next.endedByLeave = true;
-      next.leftBy = String(next?.players?.[leftSide] || "");
-      next.leftAt = new Date().toISOString();
-      next.leaveKind = "stale_presence";
+      next.leaveKind = "both_abandoned";
       next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
-      if (Number(next.matchScores.p1 || 0) === Number(next.matchScores.p2 || 0)) {
-        next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
-      }
       next.markers = { ...(s.markers || {}), match: Number(s?.markers?.match || 0) + 1 };
       next.updatedAt = new Date().toISOString();
       return { changed: true, state: next };
