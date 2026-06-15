@@ -1687,6 +1687,14 @@ function asObj(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+// Подменяемые «часы» PvP-движка. В обычной игре = Date.now(). Во время «догона»
+// (pvpAdvanceCatchUp) подменяется на виртуальное время, чтобы проиграть пропущенные
+// автоходы по таймеру. Все чтения времени в advance/resolve-функциях идут через pvpNow().
+let _pvpClock = null;
+function pvpNow() {
+  return _pvpClock !== null ? _pvpClock : Date.now();
+}
+
 function getPvpRole(state, tgId) {
   const key = String(state?.player1_tg_user_id) === String(tgId) ? "p1" : "p2";
   return state?.state_json?.roles?.[key] || null;
@@ -1938,7 +1946,7 @@ function pvpWrapWithAcceptPhase(state, roomLike) {
 function pvpAdvanceAcceptPhase(room, state) {
   const s = asObj(state);
   if (String(s.phase || "") !== "accept_match") return { blocked: false, changed: false, state: s };
-  const now = Date.now();
+  const now = pvpNow();
   const am = { ...asObj(s.acceptMatch) };
   const next = { ...s };
   const deadlineMs = Number(am.deadlineMs || 0);
@@ -1969,7 +1977,7 @@ function asMs(value) {
 function pvpHeartbeat(state, tgId) {
   const next = { ...asObj(state) };
   const side = String(next?.players?.p1 || "") === String(tgId) ? "p1" : "p2";
-  const now = Date.now();
+  const now = pvpNow();
   const presence = { ...(next.presence || {}) };
   const prev = Number(presence[side] || 0);
   if (now - prev < 5_000) return { changed: false, state: next };
@@ -2057,7 +2065,7 @@ async function pvpTryJoinWaiting(gameKey, tgId, safeName, wantedStakes) {
       room,
       tgId,
       safeName,
-      { ...state, phaseAtMs: Date.now() },
+      { ...state, phaseAtMs: pvpNow() },
       sharedStake
     );
     if (joined) return joined;
@@ -2080,7 +2088,7 @@ async function pvpTryJoinWaiting(gameKey, tgId, safeName, wantedStakes) {
       room,
       tgId,
       safeName,
-      { ...state, phaseAtMs: Date.now() },
+      { ...state, phaseAtMs: pvpNow() },
       sharedStake
     );
     if (joined) return joined;
@@ -2094,7 +2102,7 @@ async function pvpCleanupUserRooms(tgId, gameKey) {
     `pvp_rooms?game_key=eq.${encodeURIComponent(gameKey)}&status=in.(waiting,active)&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=*&order=updated_at.desc&limit=20`
   );
   if (!rows?.length) return null;
-  const now = Date.now();
+  const now = pvpNow();
   const staleMs = 2 * 60 * 1000;
   const alive = [];
   const cancelIds = [];
@@ -2272,7 +2280,7 @@ function pvpResolveObstacleRound(state) {
   }
 
   s.phase = "round_result";
-  s.phaseAtMs = Date.now();
+  s.phaseAtMs = pvpNow();
   s.pendingMoves = { p1: null, p2: null };
   s.moveSubmittedBy = {}; // Clear move tracking for next round
   s.lastRoundResult = {
@@ -2323,7 +2331,7 @@ function pvpApplyObstacleMove(room, tgId, move) {
       : Array.isArray(asObj(next.overtimeTraps).p1) && Array.isArray(asObj(next.overtimeTraps).p2);
     if (bothReady) {
       next.phase = "running";
-      next.phaseAtMs = Date.now();
+      next.phaseAtMs = pvpNow();
       next.pendingMoves = { p1: null, p2: null };
       next.moveSubmittedBy = {}; // Clear move tracking
     } else {
@@ -2494,7 +2502,7 @@ function pvpResolveSuperPenaltyRound(state) {
   }
 
   s.phase = "round_result";
-  s.phaseAtMs = Date.now();
+  s.phaseAtMs = pvpNow();
   s.choices = { p1: null, p2: null };
   // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy для следующего раунда
   s.moveSubmittedBy = { p1: null, p2: null };
@@ -2587,7 +2595,7 @@ function pvpResolveBasketballRound(state) {
   s.scores.p2 = Number(s.scores.p2 || 0) + p2Pts;
   s.round = Number(s.round || 0) + 1;
   s.phase = "round_result";
-  s.phaseAtMs = Date.now();
+  s.phaseAtMs = pvpNow();
   s.choices = { p1: null, p2: null };
   // ✅ ЗАЩИТА ОТ ЧИТЕРСТВА: очищаем moveSubmittedBy для следующего раунда
   s.moveSubmittedBy = { p1: null, p2: null };
@@ -2650,7 +2658,7 @@ function pvpAdvanceByTime(room) {
     return { changed: acceptStep.changed, state: acceptStep.state };
   }
   if (String(room?.game_key || "") === "basketball" || s.engine === "basketball_v1") {
-    const now = Date.now();
+    const now = pvpNow();
     const phaseAt = Number(s?.phaseAtMs || 0);
     if (!phaseAt) return { changed: false, state: s };
     const elapsed = now - phaseAt;
@@ -2701,24 +2709,9 @@ function pvpAdvanceByTime(room) {
       }
     }
 
-    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
-    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
-    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
-    if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const bothGoneMs = 120000;
-      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
-        const sp1 = Number(asObj(next.scores).p1 || 0);
-        const sp2 = Number(asObj(next.scores).p2 || 0);
-        next.phase = "match_over";
-        next.phaseAtMs = now;
-        next.endedByLeave = true;
-        next.leaveKind = "both_abandoned";
-        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
-        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
-        next.updatedAt = new Date().toISOString();
-        return { changed: true, state: next };
-      }
-    }
+    // Выход игрока не форфейтит и не завершает матч по счёту: незавершённый матч
+    // доигрывается автоходами по таймеру через pvpAdvanceCatchUp при следующем обращении —
+    // поэтому бот-матч и матч с человеком ведут себя одинаково.
 
     if (s.phase === "round_result" && elapsed >= 2400) {
       const phaseNum = Number(s.phaseNum || 2);
@@ -2796,7 +2789,7 @@ function pvpAdvanceByTime(room) {
     return { changed: false, state: s };
   }
   if (String(room?.game_key || "") === "super_penalty" || s.engine === "super_penalty_v1") {
-    const now = Date.now();
+    const now = pvpNow();
     const phaseAt = Number(s?.phaseAtMs || 0);
     if (!phaseAt) return { changed: false, state: s };
     const elapsed = now - phaseAt;
@@ -2864,31 +2857,18 @@ function pvpAdvanceByTime(room) {
         }
       }
     }
-    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
-    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
-    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
-    if ((s.phase === "turn_input" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const bothGoneMs = 120000;
-      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
-        const sp1 = Number(asObj(next.scores).p1 || 0);
-        const sp2 = Number(asObj(next.scores).p2 || 0);
-        next.phase = "match_over";
-        next.phaseAtMs = now;
-        next.endedByLeave = true;
-        next.leaveKind = "both_abandoned";
-        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
-        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
-        next.updatedAt = new Date().toISOString();
-        return { changed: true, state: next };
-      }
-    }
+    // Выход игрока не форфейтит и не завершает матч по счёту: незавершённый матч
+    // доигрывается автоходами по таймеру через pvpAdvanceCatchUp при следующем обращении —
+    // поэтому бот-матч и матч с человеком ведут себя одинаково.
     if (s.phase === "turn_input" && elapsed >= 17000) {
       // Серверный auto-resolve через 17с от phaseAtMs. Клиентский таймер 11с стартует с
       // задержкой ~2с (safetyTimeout 1500ms + poll 200ms + roleAnnounce 500ms), и ещё ~1с
       // ест сетевая latency Vercel cold start. Итого с момента phaseAtMs клиентский timer
       // истекает на ~13-14с, и буфер до серверного auto-resolve должен быть >=3с — иначе
       // сервер успевает выстрелить случайной зоной пока у игрока «ещё есть время».
-      if (p1Beat <= 0 || p2Beat <= 0) return { changed: false, state: s };
+      // Для бот-матчей гейт по presence не применяем: у бота beat всегда 0, иначе авто-добор
+      // хода отсутствующего человека (в т.ч. при догоне) не сработал бы.
+      if (!isPvpBotFallbackRoom(room) && (p1Beat <= 0 || p2Beat <= 0)) return { changed: false, state: s };
       const prevChoices = asObj(s.choices);
       const choices = { ...prevChoices };
       const autoFilledSides = [];
@@ -2932,7 +2912,7 @@ function pvpAdvanceByTime(room) {
     return { changed: false, state: s };
   }
   if (String(room?.game_key || "") === "obstacle_race" || s.engine === "obstacle_race_v1") {
-    const now = Date.now();
+    const now = pvpNow();
     const phaseAt = Number(s?.phaseAtMs || 0);
     if (!phaseAt) return { changed: false, state: s };
     const elapsed = now - phaseAt;
@@ -2959,7 +2939,7 @@ function pvpAdvanceByTime(room) {
             next.botPending = null;
             if (Array.isArray(asObj(next.traps).p1) && Array.isArray(asObj(next.traps).p2)) {
               next.phase = "running";
-              next.phaseAtMs = Date.now();
+              next.phaseAtMs = pvpNow();
               next.pendingMoves = { p1: null, p2: null };
               next.moveSubmittedBy = {}; // Clear move tracking
             }
@@ -2985,7 +2965,7 @@ function pvpAdvanceByTime(room) {
             next.botPending = null;
             if (Array.isArray(asObj(next.overtimeTraps).p1) && Array.isArray(asObj(next.overtimeTraps).p2)) {
               next.phase = "running";
-              next.phaseAtMs = Date.now();
+              next.phaseAtMs = pvpNow();
               next.pendingMoves = { p1: null, p2: null };
               next.moveSubmittedBy = {}; // Clear move tracking
             }
@@ -3031,24 +3011,9 @@ function pvpAdvanceByTime(room) {
         }
       }
     }
-    // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
-    // доигрывает ходы за отсутствующего, матч идёт по таймеру. Завершаем по текущему
-    // счёту только если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат).
-    if ((s.phase === "placing_traps" || s.phase === "overtime_placing" || s.phase === "running" || s.phase === "round_result") && p1Beat > 0 && p2Beat > 0) {
-      const bothGoneMs = 120000;
-      if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 3000) {
-        const sp1 = Number(asObj(next.scores).p1 || 0);
-        const sp2 = Number(asObj(next.scores).p2 || 0);
-        next.phase = "match_over";
-        next.phaseAtMs = now;
-        next.endedByLeave = true;
-        next.leaveKind = "both_abandoned";
-        next.winnerSide = sp1 > sp2 ? "p1" : (sp2 > sp1 ? "p2" : null);
-        next.markers = { ...asObj(next.markers), match: Number(asObj(next.markers).match || 0) + 1 };
-        next.updatedAt = new Date().toISOString();
-        return { changed: true, state: next };
-      }
-    }
+    // Выход игрока не форфейтит и не завершает матч по счёту: незавершённый матч
+    // доигрывается автоходами по таймеру через pvpAdvanceCatchUp при следующем обращении —
+    // поэтому бот-матч и матч с человеком ведут себя одинаково.
 
     if (s.phase === "placing_traps" && elapsed >= 22000) {
       const p1 = Array.isArray(asObj(s.traps).p1) ? asObj(s.traps).p1 : pvpRandomTraps(Number(s.mainRounds || 7), Number(s.trapsPerMain || 3));
@@ -3127,7 +3092,7 @@ function pvpAdvanceByTime(room) {
     }
     return { changed: false, state: s };
   }
-  const now = Date.now();
+  const now = pvpNow();
   const phaseAt = Number(s?.phaseAtMs || 0);
   if (!phaseAt) return { changed: false, state: s };
   const elapsed = now - phaseAt;
@@ -3185,7 +3150,7 @@ function pvpAdvanceByTime(room) {
             next.matchScores[winnerSide] = Number(next.matchScores[winnerSide] || 0) + 1;
           }
           next.phase = "round_result";
-          next.phaseAtMs = Date.now();
+          next.phaseAtMs = pvpNow();
           next.markers = { ...(next.markers || {}), round: Number(next?.markers?.round || 0) + 1 };
           next.roundHit = hit;
           next.nextFrogCell = frogCell;
@@ -3209,22 +3174,9 @@ function pvpAdvanceByTime(room) {
     }
   }
 
-  // Выход игрока из приложения больше НЕ завершает матч форфейтом: ниже авто-таймер
-  // доигрывает ходы за отсутствующего. Завершаем по текущему счёту (matchScores) только
-  // если ОБА игрока давно отсутствуют (заброшенный матч; ничья → возврат ставок).
-  if ((s.phase === "turn_input" || s.phase === "round_result" || s.phase === "game_over") && p1Beat > 0 && p2Beat > 0) {
-    const bothGoneMs = 120000;
-    if (now - p1Beat > bothGoneMs && now - p2Beat > bothGoneMs && elapsed >= 4000) {
-      next.phase = "match_over";
-      next.phaseAtMs = now;
-      next.endedByLeave = true;
-      next.leaveKind = "both_abandoned";
-      next.matchScores = { ...(s.matchScores || { p1: 0, p2: 0 }) };
-      next.markers = { ...(s.markers || {}), match: Number(s?.markers?.match || 0) + 1 };
-      next.updatedAt = new Date().toISOString();
-      return { changed: true, state: next };
-    }
-  }
+  // Выход игрока не форфейтит и не завершает матч по счёту: незавершённый матч
+  // доигрывается автоходами по таймеру через pvpAdvanceCatchUp при следующем обращении —
+  // поэтому бот-матч и матч с человеком ведут себя одинаково.
 
   if (s.phase === "turn_input" && elapsed >= 18000) {
     const pending = asObj(s.pending);
@@ -3447,7 +3399,7 @@ function pvpApplyMove(room, tgId, move) {
   }
 
   next.phase = "round_result";
-  next.phaseAtMs = Date.now();
+  next.phaseAtMs = pvpNow();
   next.markers = { ...(next.markers || {}), round: Number(next?.markers?.round || 0) + 1 };
   next.roundHit = hit;
   next.nextFrogCell = frogCell;
@@ -3653,6 +3605,48 @@ function pvpAutoStartFromAcceptState(state) {
   };
 }
 
+// Догон по таймеру. Если в комнате был «простой» (игрок(и) выходили из приложения),
+// проигрываем пропущенные ходы автоходами на ВИРТУАЛЬНЫХ часах до реального времени или
+// до конца матча. Благодаря этому бот-матч и матч с человеком ведут себя одинаково:
+// вернувшись, игрок видит матч там, где он «должен быть» по времени (или уже завершённым),
+// а не замороженным — что выдавало бы бота. На живой игре (малый разрыв) — обычный шаг.
+function pvpAdvanceCatchUp(room) {
+  const s0 = asObj(room?.state_json);
+  const real = Date.now();
+  const phaseAt0 = Number(s0.phaseAtMs || 0);
+  const CATCHUP_GAP_MS = 35000; // дольше любого таймаута хода → точно был выход
+  if (!phaseAt0 || real - phaseAt0 <= CATCHUP_GAP_MS) {
+    return pvpAdvanceByTime(room);
+  }
+  let work = room;
+  let changed = false;
+  let vClock = phaseAt0 + 1000;
+  let guard = 0;
+  while (vClock <= real && guard++ < 1500) {
+    _pvpClock = vClock;
+    let adv;
+    try {
+      adv = pvpAdvanceByTime(work);
+    } finally {
+      _pvpClock = null;
+    }
+    if (adv.changed) {
+      work = { ...work, state_json: adv.state };
+      changed = true;
+      if (String(asObj(adv.state).phase || "") === "match_over") break;
+    }
+    vClock += 1000;
+  }
+  // Финальный шаг в реальном времени: досчитать текущую фазу и выставить свежий phaseAtMs,
+  // чтобы у вернувшегося игрока таймер хода шёл нормально.
+  const advFinal = pvpAdvanceByTime(work);
+  if (advFinal.changed) {
+    work = { ...work, state_json: advFinal.state };
+    changed = true;
+  }
+  return { changed, state: asObj(work.state_json) };
+}
+
 async function pvpGetRoomState(initData, roomId) {
   const verified = verifyTelegramInitData(initData || "", BOT_TOKEN);
   if (!verified.ok) throw new Error(verified.error);
@@ -3681,7 +3675,7 @@ async function pvpGetRoomState(initData, roomId) {
   // advance на нём, чтобы ход бота не "потерялся" в гонке между параллельными Lambda-инстансами.
   let stateChanged = false;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const advanced = pvpAdvanceByTime(nextRoom);
+    const advanced = pvpAdvanceCatchUp(nextRoom);
     const hb = pvpHeartbeat(advanced.state, tgId);
     if (!advanced.changed && !hb.changed) break;
     const patched = await sb(
@@ -4904,10 +4898,42 @@ module.exports = async (req, res) => {
       const gameKey = req.body?.gameKey ? String(req.body.gameKey) : null;
       const gameFilter = gameKey ? `&game_key=eq.${encodeURIComponent(gameKey)}` : "";
       const rows = await sb(
-        `pvp_rooms?status=eq.active&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})${gameFilter}&select=id,game_key,status,stake_ton,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,updated_at&order=updated_at.desc&limit=1`
+        `pvp_rooms?status=eq.active&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})${gameFilter}&select=id,game_key,status,state_json,stake_ton,stake_settled_at,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,created_at,updated_at&order=updated_at.desc&limit=1`
       );
-      const room = rows?.[0] || null;
-      return res.status(200).json({ ok: true, room });
+      let room = rows?.[0] || null;
+      if (room && String(room.status) === "active") {
+        // Догон по таймеру + финализация (как при заходе в матч): заброшенные и бот-матчи
+        // доигрываются и не висят, даже если игрок открыл только лобби. Не критично для
+        // ответа — при ошибке просто отдаём комнату как есть.
+        try {
+          const adv = pvpAdvanceCatchUp(room);
+          if (adv.changed) {
+            const patched = await sb(
+              `pvp_rooms?id=eq.${room.id}&updated_at=eq.${encodeURIComponent(room.updated_at)}`,
+              { method: "PATCH", body: { state_json: adv.state, updated_at: new Date().toISOString() }, prefer: "return=representation" }
+            );
+            if (patched?.length) room = patched[0];
+          }
+          room = await finalizePvpRoomIfNeeded(room);
+        } catch (e) {
+          console.error("pvpGetMyActiveRoom catch-up:", e?.message || e);
+        }
+        if (String(room?.status || "") !== "active") room = null;
+      }
+      const slim = room
+        ? {
+            id: room.id,
+            game_key: room.game_key,
+            status: room.status,
+            stake_ton: room.stake_ton,
+            player1_tg_user_id: room.player1_tg_user_id,
+            player2_tg_user_id: room.player2_tg_user_id,
+            player1_name: room.player1_name,
+            player2_name: room.player2_name,
+            updated_at: room.updated_at,
+          }
+        : null;
+      return res.status(200).json({ ok: true, room: slim });
     }
     if (action === "pvpGetFilteredState") {
       const room = await pvpGetFilteredState(req.body?.initData || "", req.body?.roomId || 0);
