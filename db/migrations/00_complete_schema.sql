@@ -127,9 +127,11 @@ create table if not exists public.pvp_rooms (
     check (status in ('waiting', 'active', 'finished', 'cancelled')),
   player1_tg_user_id text not null references public.users (tg_user_id) on delete cascade,
   player1_name text not null default '',
-  player2_tg_user_id text null references public.users (tg_user_id) on delete set null,
+  -- No FK to users: bot-fallback matches store synthetic "bot_fallback_<roomId>" here.
+  player2_tg_user_id text null,
   player2_name text null,
-  winner_tg_user_id text null references public.users (tg_user_id) on delete set null,
+  -- No FK to users: a bot ("bot_fallback_<roomId>") can be the winner.
+  winner_tg_user_id text null,
   stake_options_ton numeric[] null,
   stake_ton numeric(20, 9) null,
   stake_locked_at timestamptz null,
