@@ -193,6 +193,9 @@ const GamePage = () => {
   const screenRef = useRef('');
   const findInFlightRef = useRef(false);
   const lockedMySideRef = useRef(null);
+  // Первое применение состояния после монтирования/реконнекта — для resume-снапшота (без
+  // проигрывания пропущенных раундов, см. applyPvpRoomState).
+  const pvpFirstApplyRef = useRef(true);
   // turnId текущего раунда, синхронизируется из serverного state в applyPvpRoomState.
   // Захватывается в момент тапа и передаётся в pvpSubmitMove, чтобы сервер отверг
   // stale-submit из прошлого раунда (STALE_TURN) и не было «авто-броска».
@@ -742,6 +745,44 @@ const GamePage = () => {
     piRef.current = myIdx;
     setOpponent(meIsP1 ? (room.player2_name || 'Соперник') : (room.player1_name || 'Соперник'));
     setCurrentStakeTon(room.stake_ton != null ? Number(room.stake_ton) : null);
+
+    // RESUME-СНАПШОТ: первое применение состояния после монтирования/реконнекта. Пока игрока не
+    // было, сервер мог «догнать» матч на несколько раундов вперёд или до конца. НЕ проигрываем
+    // прошлые/последний раунд как «живые» события — синхронизируемся на ТЕКУЩЕЕ состояние сразу:
+    //  - match_over → сразу экран результата (а не анимация последнего раунда «вместо счёта»);
+    //  - round_result → снапим счёт, ход покажет следующий поллинг (без анимации прошлого раунда);
+    //  - turn_input → проваливаемся к обычному round_start (покажет текущий ход).
+    // Маркеры выставляем на текущие, чтобы поллинг не реанимировал уже сыгранное.
+    if (pvpFirstApplyRef.current) {
+      pvpFirstApplyRef.current = false;
+      const snapScores = [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)];
+      pvpLastRoundMarkerRef.current = Number(s?.lastRoundResult?.marker || 0);
+      pvpLastPhaseKeyRef.current = String(Number(s.phaseNum || 2));
+      setScores(snapScores);
+      scoresRef.current = snapScores;
+      if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+        stopPvpPolling();
+        pvpRoomIdRef.current = null;
+        let youWon = false;
+        if (s.winnerSide) youWon = s.winnerSide === mySide;
+        else if (snapScores[0] !== snapScores[1]) youWon = myIdx === 0 ? snapScores[0] > snapScores[1] : snapScores[1] > snapScores[0];
+        if (s.endedByLeave && s.leftBy && myTg && String(s.leftBy) !== myTg) {
+          const kind = String(s.leaveKind || '');
+          if (kind === 'explicit' || kind === 'stale_presence') {
+            setMatchResult({ youWon: true, scores: snapScores, opponentLeft: true });
+            setScreen('result');
+            return;
+          }
+        }
+        handleMsg({ type: 'match_result', youWon, scores: snapScores });
+        return;
+      }
+      if (s.phase === 'round_result') {
+        setRound(Number(s.round || 0));
+        return;
+      }
+      // turn_input → продолжаем ниже к round_start
+    }
 
     const phaseNum = Number(s.phaseNum || 2);
     const phaseKey = String(phaseNum);
