@@ -2917,6 +2917,65 @@
     });
   })();
 
+  // ===== АВТО-ВХОД В МАТЧ ПРИ (ПЕРЕ)ОТКРЫТИИ ПРИЛОЖЕНИЯ =====
+  // При запуске приложения: если есть живой матч — сразу открываем игру, минуя страницу игр; если
+  // матч завершился, пока игрока не было — открываем игру с экраном результата.
+  // Срабатывает ОДИН раз за сессию webview (sessionStorage Telegram очищает при реальном закрытии
+  // мини-приложения, но НЕ при навигации игра→лобби), поэтому возврат из игры в лобби не выбрасывает
+  // обратно в матч, а закрытие+повторное открытие — выбрасывает. Завершённые итоги дополнительно
+  // дедуплицируются (localStorage), чтобы один и тот же результат не показывался повторно.
+  const AUTORESUME_SESSION_KEY = "f1_autoresume_done";
+  const SEEN_RESULTS_KEY = "f1_seen_results";
+  function autoResumeChecked(){
+    try{ return sessionStorage.getItem(AUTORESUME_SESSION_KEY) === "1"; }catch(e){ return false; }
+  }
+  function markAutoResumeChecked(){
+    try{ sessionStorage.setItem(AUTORESUME_SESSION_KEY, "1"); }catch(e){}
+  }
+  function isResumeResultSeen(roomId){
+    try{
+      const arr = JSON.parse(localStorage.getItem(SEEN_RESULTS_KEY) || "[]");
+      return Array.isArray(arr) && arr.indexOf(String(roomId)) >= 0;
+    }catch(e){ return false; }
+  }
+  function markResumeResultSeen(roomId){
+    try{
+      let arr = JSON.parse(localStorage.getItem(SEEN_RESULTS_KEY) || "[]");
+      if(!Array.isArray(arr)) arr = [];
+      if(arr.indexOf(String(roomId)) < 0){
+        arr.push(String(roomId));
+        while(arr.length > 50) arr.shift();
+        localStorage.setItem(SEEN_RESULTS_KEY, JSON.stringify(arr));
+      }
+    }catch(e){}
+  }
+  // true → инициирован переход в игру (страница уходит, грузить лобби не нужно).
+  async function maybeAutoResumeActiveGame(){
+    if(autoResumeChecked()) return false;
+    if(typeof needsOnboarding === "function" && needsOnboarding()) return false;
+    markAutoResumeChecked();
+    if(!hasTgAuth) return false;
+    let data = null;
+    try{
+      data = await apiJson("/api/user", { action: "pvpGetResumeTarget", initData: tgInitData }, { timeoutMs: 3500 });
+    }catch(e){ return false; }
+    const room = data && data.room ? data.room : null;
+    const kind = data ? String(data.kind || "") : "";
+    if(!room || !RANDOM_GAME_URLS[room.game_key]) return false;
+    const base = RANDOM_GAME_URLS[room.game_key];
+    if(kind === "active"){
+      window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
+      return true;
+    }
+    if(kind === "finished"){
+      if(isResumeResultSeen(room.id)) return false; // итог уже показывали — не всплываем повторно
+      markResumeResultSeen(room.id);
+      window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
+      return true;
+    }
+    return false;
+  }
+
   // ===== ГАРД АКТИВНОГО МАТЧА — модалка «Продолжить/Сдаться» перед запуском любой игры =====
   // Если у игрока есть живой активный PvP-матч, нельзя молча начать новую игру (это уничтожило бы
   // матч соперника / дало бы рефанд-эксплойт на сервере). Показываем выбор: вернуться в матч или
@@ -4370,24 +4429,33 @@
   });
 
   (async ()=>{
+    // Проверку возобновления матча стартуем параллельно с гидрацией, чтобы не добавлять задержку
+    // к загрузке и максимально быстро уйти в игру, если матч есть.
+    const autoResumePromise = maybeAutoResumeActiveGame().catch(()=>false);
     try{
       await hydrateUserFromServer();
       await maybeSyncDepositsOnForeground();
       await loadExternalStats();
       await loadMatchHistory();
     }finally{
-      renderAll();
-      initNav();
-      document.body.classList.remove("booting");
-      syncPresenceAndOnline();
-      setInterval(presencePing, 8000);
-      setInterval(refreshOnlineCount, 14000);
-      setInterval(()=>{
-        if(!hasTgAuth) return;
-        const tab = (location.hash||"").slice(1);
-        if(tab === "profile") loadExternalStats();
-        if(tab === "matches") loadMatchHistory({ silent: true });
-      }, 12000);
+      // Авто-вход в активный/завершённый матч (один раз за сессию), пока ещё показан экран загрузки —
+      // чтобы лобби не мелькало перед переходом в игру. Если перехода нет — обычная загрузка лобби.
+      let autoResumed = false;
+      try{ autoResumed = await autoResumePromise; }catch(e){ autoResumed = false; }
+      if(!autoResumed){
+        renderAll();
+        initNav();
+        document.body.classList.remove("booting");
+        syncPresenceAndOnline();
+        setInterval(presencePing, 8000);
+        setInterval(refreshOnlineCount, 14000);
+        setInterval(()=>{
+          if(!hasTgAuth) return;
+          const tab = (location.hash||"").slice(1);
+          if(tab === "profile") loadExternalStats();
+          if(tab === "matches") loadMatchHistory({ silent: true });
+        }, 12000);
+      }
     }
   })();
 

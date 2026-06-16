@@ -160,32 +160,27 @@ function enforceLocalRateLimits(tgUserId) {
   localActionRate.set(key, prev);
 }
 
+// Один SELECT покрывает оба ограничения: и лимит за минуту, и минимальный интервал между
+// действиями (раньше это были два отдельных round-trip к roulette_action_logs).
 async function enforceDbRateLimit(supabase, tgUserId) {
   const since = new Date(Date.now() - 60_000).toISOString();
-  const { count, error } = await supabase
-    .from("roulette_action_logs")
-    .select("id", { count: "exact", head: true })
-    .eq("tg_user_id", String(tgUserId))
-    .gte("created_at", since);
-  if (error) {
-    console.warn("[Roulette API] rate-limit db check failed:", error.message);
-    return;
-  }
-  if ((count || 0) >= ACTION_RATE_LIMIT_PER_MIN) {
-    throw new Error("Слишком много запросов. Попробуйте через минуту.");
-  }
-}
-
-async function enforceDbMinInterval(supabase, tgUserId) {
   const { data, error } = await supabase
     .from("roulette_action_logs")
     .select("created_at")
     .eq("tg_user_id", String(tgUserId))
+    .gte("created_at", since)
     .order("created_at", { ascending: false })
-    .limit(1);
-  if (error || !data?.[0]?.created_at) return;
-  const lastMs = new Date(data[0].created_at).getTime();
-  if (Number.isFinite(lastMs) && Date.now() - lastMs < ACTION_MIN_INTERVAL_MS) {
+    .limit(ACTION_RATE_LIMIT_PER_MIN + 1);
+  if (error) {
+    console.warn("[Roulette API] rate-limit db check failed:", error.message);
+    return;
+  }
+  const rows = data || [];
+  if (rows.length >= ACTION_RATE_LIMIT_PER_MIN) {
+    throw new Error("Слишком много запросов. Попробуйте через минуту.");
+  }
+  const lastMs = rows[0]?.created_at ? new Date(rows[0].created_at).getTime() : 0;
+  if (lastMs && Date.now() - lastMs < ACTION_MIN_INTERVAL_MS) {
     throw new Error("Слишком частые действия. Подождите немного.");
   }
 }
@@ -303,34 +298,23 @@ async function createNewRound() {
   });
 }
 
-async function calculateChances(roundId) {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  
-  // Получить банк раунда
-  const { data: round } = await supabase
-    .from("roulette_rounds")
-    .select("pot_amount")
-    .eq("id", roundId)
-    .single();
-  
-  if (!round || round.pot_amount === 0) return;
-  
-  // Получить все ставки
-  const { data: bets } = await supabase
-    .from("roulette_bets")
-    .select("id, bet_amount")
-    .eq("round_id", roundId);
-  
-  if (!bets || bets.length === 0) return;
-  
-  // Обновить шансы
-  for (const bet of bets) {
-    const chance = (bet.bet_amount / round.pot_amount) * 100;
-    await supabase
-      .from("roulette_bets")
-      .update({ chance_percent: chance })
-      .eq("id", bet.id);
-  }
+// Пересчёт шансов: chance = bet/pot*100. Данные берём из уже загруженных ставок (allBets) —
+// без повторных SELECT, а сами UPDATE'ы идут параллельно (один батч RTT вместо N последовательных).
+// В раунде ровно одна ставка на user_id (join проверяет дубль, raise обновляет ту же), поэтому
+// апдейт по (round_id, user_id) однозначен.
+async function persistChances(supabase, roundId, allBets, realPot) {
+  const pot = parseFloat(realPot || 0);
+  if (!(pot > 0) || !allBets || allBets.length === 0) return;
+  await Promise.all(
+    allBets.map((b) => {
+      const chance = (parseFloat(b.bet_amount || 0) / pot) * 100;
+      return supabase
+        .from("roulette_bets")
+        .update({ chance_percent: chance })
+        .eq("round_id", roundId)
+        .eq("user_id", b.user_id);
+    })
+  );
 }
 
 /**
@@ -700,11 +684,15 @@ async function handleGetActiveRound(body) {
 // Собирает полный снимок раунда (ставки, аватарки, карточки колеса, победитель) для клиента.
 // Возвращается и из getActiveRound (поллинг), и из joinRound/raiseBet — чтобы клиент применял
 // результат ставки сразу, без отдельного запроса (оптимизация задержки ставки).
-async function buildRoundResponse(supabase, round) {
+async function buildRoundResponse(supabase, round, { cacheOnlyPhotos = false } = {}) {
   const bets = await getRoundBets(round.id);
 
   // Аватарки нужны на карточках, но нельзя тормозить polling.
   // Поэтому тянем через кэш и с коротким таймаутом (best-effort).
+  // cacheOnlyPhotos=true (путь ставки) — берём фото ТОЛЬКО из кэша, без сетевого запроса к
+  // Telegram: это убирает до ~650мс из обработки ставки. Кэш прогревается фоновым polling
+  // (getActiveRound), поэтому в установившемся режиме фото уже есть; на самой первой ставке
+  // аватар игрока подтянется следующим поллом (~800мс).
   const betsWithPhotos = await Promise.all(
     (bets || []).map(async (bet) => {
       const displayName = displayNameFromProfile(
@@ -712,7 +700,15 @@ async function buildRoundResponse(supabase, round) {
         bet.users?.last_name,
         bet.users?.username
       );
-      const photoUrl = isRouletteBotId(bet.user_id) ? null : await getTelegramPhotoUrlCached(bet.user_id, 650);
+      let photoUrl = null;
+      if (!isRouletteBotId(bet.user_id)) {
+        if (cacheOnlyPhotos) {
+          const cached = cacheGet(bet.user_id);
+          photoUrl = cached === undefined ? null : cached;
+        } else {
+          photoUrl = await getTelegramPhotoUrlCached(bet.user_id, 650);
+        }
+      }
       return {
         id: bet.id,
         user_id: bet.user_id,
@@ -854,12 +850,14 @@ async function maybeAddRouletteBot(supabase, round) {
     .eq("round_id", round.id);
   const realPot = (allBets || []).reduce((s, b) => s + parseFloat(b.bet_amount || 0), 0);
   const playersCount = [...new Set((allBets || []).map((b) => b.user_id))].length;
-  await supabaseUpdate("roulette_rounds", round.id, {
-    pot_amount: realPot,
-    players_count: playersCount,
-    total_bets_count: (allBets || []).length,
-  });
-  await calculateChances(round.id);
+  await Promise.all([
+    supabaseUpdate("roulette_rounds", round.id, {
+      pot_amount: realPot,
+      players_count: playersCount,
+      total_bets_count: (allBets || []).length,
+    }),
+    persistChances(supabase, round.id, allBets, realPot),
+  ]);
 
   const { data: fresh } = await supabase.from("roulette_rounds").select("*").eq("id", round.id).single();
   return fresh || round;
@@ -1064,22 +1062,21 @@ async function handleJoinRound(body, tgUserId) {
   }
   
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  
-  // Проверить баланс
-  const { data: user } = await supabase
-    .from("users")
-    .select("balance")
-    .eq("tg_user_id", tgUserId)
-    .single();
-  
+
+  // Баланс и активный раунд — независимые чтения, тянем параллельно (−1 RTT).
+  const [{ data: user }, activeRound] = await Promise.all([
+    supabase.from("users").select("balance").eq("tg_user_id", tgUserId).single(),
+    getActiveRound(),
+  ]);
+
   if (!user || user.balance < betAmount) {
     throw new Error("Недостаточно средств");
   }
-  
+
   // Получить или создать раунд.
   // ВАЖНО: getActiveRound может вернуть недавно finished (для показа модалки),
   // но в finished/spinning ставки принимать нельзя.
-  let round = await getActiveRound();
+  let round = activeRound;
   if (!round || round.status === 'finished') {
     round = await createNewRound();
   } else if (round.status === 'spinning') {
@@ -1161,24 +1158,21 @@ async function handleJoinRound(body, tgUserId) {
     updateData.timer_ends_at = new Date(Date.now() + TIMER_DURATION * 1000).toISOString();
   }
   
-  await supabaseUpdate("roulette_rounds", round.id, updateData);
-  
-  // Пересчитать шансы на основе реального банка
-  await calculateChances(round.id);
-  
-  // Списать со счета
+  // Раунд и шансы — параллельно (один батч RTT вместо N последовательных UPDATE шансов).
+  await Promise.all([
+    supabaseUpdate("roulette_rounds", round.id, updateData),
+    persistChances(supabase, round.id, allBets, realPot),
+  ]);
+
+  // Списание баланса — последним, как и раньше: при сбое записи раунда/шансов игрок не списан.
   await supabase
     .from("users")
     .update({ balance: user.balance - betAmount })
     .eq("tg_user_id", tgUserId);
 
-  // Возвращаем полный снимок раунда — клиент применит его сразу, без отдельного getActiveRound.
-  const { data: freshRound } = await supabase
-    .from("roulette_rounds")
-    .select("*")
-    .eq("id", round.id)
-    .single();
-  return await buildRoundResponse(supabase, freshRound || round);
+  // Снимок строим локально (round + updateData) — без отдельного getActiveRound и без лишнего
+  // SELECT. Фото берём из кэша (cacheOnlyPhotos), polling прогреет недостающие аватары.
+  return await buildRoundResponse(supabase, { ...round, ...updateData }, { cacheOnlyPhotos: true });
 }
 
 async function handleRaiseBet(body, tgUserId) {
@@ -1189,20 +1183,19 @@ async function handleRaiseBet(body, tgUserId) {
   }
   
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  
-  // Проверить баланс
-  const { data: user } = await supabase
-    .from("users")
-    .select("balance")
-    .eq("tg_user_id", tgUserId)
-    .single();
-  
+
+  // Баланс и активный раунд — независимые чтения, тянем параллельно (−1 RTT).
+  const [{ data: user }, activeRound] = await Promise.all([
+    supabase.from("users").select("balance").eq("tg_user_id", tgUserId).single(),
+    getActiveRound(),
+  ]);
+
   if (!user || user.balance < raiseAmount) {
     throw new Error("Недостаточно средств");
   }
-  
+
   // Получить активный раунд
-  let round = await getActiveRound();
+  let round = activeRound;
   if (!round) {
     throw new Error("Нет активного раунда");
   }
@@ -1272,45 +1265,34 @@ async function handleRaiseBet(body, tgUserId) {
   
   // Считаем реальный банк из всех ставок
   const realPot = (allBets || []).reduce((sum, b) => sum + parseFloat(b.bet_amount || 0), 0);
-  
-  // Обновить раунд (таймер НЕ обновляется!)
-  await supabaseUpdate("roulette_rounds", round.id, {
+
+  // Таймер НЕ обновляется при повышении ставки.
+  const updateData = {
     pot_amount: realPot,
-    total_bets_count: (allBets || []).length
-  });
-  
-  // Пересчитать шансы на основе реального банка
-  await calculateChances(round.id);
-  
-  // Списать со счета
+    total_bets_count: (allBets || []).length,
+  };
+
+  // Раунд и шансы — параллельно (один батч RTT вместо N последовательных UPDATE шансов).
+  await Promise.all([
+    supabaseUpdate("roulette_rounds", round.id, updateData),
+    persistChances(supabase, round.id, allBets, realPot),
+  ]);
+
+  // Списание баланса — последним, как и раньше: при сбое записи раунда/шансов игрок не списан.
   await supabase
     .from("users")
     .update({ balance: user.balance - raiseAmount })
     .eq("tg_user_id", tgUserId);
-  
-  // Возвращаем актуальные данные после пересчёта, чтобы клиент сразу видел
-  // новые шансы/ставку без промежуточной устаревшей фазы.
-  const { data: refreshedBet } = await supabase
-    .from("roulette_bets")
-    .select("bet_amount, chance_percent")
-    .eq("round_id", round.id)
-    .eq("user_id", tgUserId)
-    .single();
 
-  // Полный снимок раунда — клиент применит сразу, без отдельного getActiveRound.
-  const { data: freshRound } = await supabase
-    .from("roulette_rounds")
-    .select("*")
-    .eq("id", round.id)
-    .single();
-  const snapshot = await buildRoundResponse(supabase, freshRound || round);
+  // my_bet считаем локально (без повторного SELECT): новая ставка и её шанс выводятся из тех же
+  // данных, что мы только что записали. Снимок строим локально; фото — из кэша.
+  const myNewBet = parseFloat(bet.bet_amount || 0) + raiseAmount;
+  const myChance = realPot > 0 ? (myNewBet / realPot) * 100 : 0;
+  const snapshot = await buildRoundResponse(supabase, { ...round, ...updateData }, { cacheOnlyPhotos: true });
   return {
     ...snapshot,
     message: "Ставка повышена",
-    my_bet: refreshedBet ? {
-      bet_amount: parseFloat(refreshedBet.bet_amount || 0),
-      chance_percent: parseFloat(refreshedBet.chance_percent || 0),
-    } : null,
+    my_bet: { bet_amount: myNewBet, chance_percent: myChance },
   };
 }
 
@@ -1520,7 +1502,6 @@ module.exports = async (req, res) => {
     } else {
       enforceLocalRateLimits(tgUserId);
       await enforceDbRateLimit(supabase, tgUserId);
-      await enforceDbMinInterval(supabase, tgUserId);
 
       const logStart = await createActionLogProcessing(supabase, {
         tgUserId,

@@ -4978,6 +4978,47 @@ module.exports = async (req, res) => {
         : null;
       return res.status(200).json({ ok: true, room: slim });
     }
+    if (action === "pvpGetResumeTarget") {
+      // Цель авто-входа при (пере)открытии приложения:
+      //  - kind:"active"   — есть живой матч (с догоном/финализацией по таймеру, как в лобби);
+      //  - kind:"finished" — матч недавно завершился, пока игрока не было → показать результат;
+      //  - kind:null       — возобновлять нечего.
+      const verified = verifyTelegramInitData(req.body?.initData || "", BOT_TOKEN);
+      if (!verified.ok) return res.status(401).json({ ok: false, error: verified.error });
+      const tgId = String(verified.user.id);
+      const slimRoom = (room) => ({
+        id: room.id,
+        game_key: room.game_key,
+        status: room.status,
+        stake_ton: room.stake_ton,
+        player1_tg_user_id: room.player1_tg_user_id,
+        player2_tg_user_id: room.player2_tg_user_id,
+        player1_name: room.player1_name,
+        player2_name: room.player2_name,
+        updated_at: room.updated_at,
+      });
+
+      // 1) Живой матч (catch-up + finalize внутри pvpFindLiveActiveRoomForUser).
+      const activeRoom = await pvpFindLiveActiveRoomForUser(tgId);
+      if (activeRoom) {
+        return res.status(200).json({ ok: true, kind: "active", room: slimRoom(activeRoom) });
+      }
+
+      // 2) Недавно завершённый матч (cancelled исключаем — там игры/результата не было). Окно
+      // ограничивает «возраст» итога, чтобы не всплывать старыми матчами; на клиенте поверх есть
+      // seen-дедуп (один и тот же результат не показывается повторно).
+      const RESUME_FINISHED_WINDOW_MS = 3 * 60 * 60 * 1000;
+      const since = new Date(Date.now() - RESUME_FINISHED_WINDOW_MS).toISOString();
+      const finishedRows = await sb(
+        `pvp_rooms?status=eq.finished&updated_at=gte.${encodeURIComponent(since)}&or=(player1_tg_user_id.eq.${encodeURIComponent(tgId)},player2_tg_user_id.eq.${encodeURIComponent(tgId)})&select=id,game_key,status,stake_ton,player1_tg_user_id,player2_tg_user_id,player1_name,player2_name,updated_at&order=updated_at.desc&limit=1`
+      );
+      const finishedRoom = finishedRows?.[0] || null;
+      if (finishedRoom) {
+        return res.status(200).json({ ok: true, kind: "finished", room: slimRoom(finishedRoom) });
+      }
+
+      return res.status(200).json({ ok: true, kind: null, room: null });
+    }
     if (action === "pvpGetFilteredState") {
       const room = await pvpGetFilteredState(req.body?.initData || "", req.body?.roomId || 0);
       return res.status(200).json({ ok: true, room, serverNowMs: Date.now() });
