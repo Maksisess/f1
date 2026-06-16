@@ -2923,20 +2923,19 @@
   // (выйти можно только закрыв приложение — матч при этом доигрывается по таймеру на сервере).
   // Значит, загрузка index.html с активным матчем = именно повторное открытие приложения, а не
   // возврат из игры, поэтому петли «выброса обратно в матч» не возникает.
-  // (Прошлая версия гейтила это флагом sessionStorage «один раз за сессию» — но Telegram на части
-  //  платформ переиспользует webview-контекст при закрытии, флаг переживал перезаход и навсегда
-  //  блокировал авто-вход. Поэтому от флага отказались.)
+  // ВАЖНО: используем РОВНО тот же экшен, что и баннер «Вернуться в игру» (pvpGetMyActiveRoom),
+  // который у пользователя стабильно находит матч. Так авто-вход срабатывает в точности тогда же,
+  // когда показался бы баннер, — без расхождений между двумя путями.
   // true → инициирован переход в игру (страница уходит, грузить лобби не нужно).
   async function maybeAutoResumeActiveGame(){
     if(typeof needsOnboarding === "function" && needsOnboarding()) return false;
     if(!hasTgAuth) return false;
     let data = null;
     try{
-      data = await apiJson("/api/user", { action: "pvpGetResumeTarget", initData: tgInitData }, { timeoutMs: 6000 });
+      data = await apiJson("/api/user", { action: "pvpGetMyActiveRoom", initData: tgInitData }, { timeoutMs: 8000 });
     }catch(e){ return false; }
     const room = data && data.room ? data.room : null;
-    const kind = data ? String(data.kind || "") : "";
-    if(!room || kind !== "active" || !RANDOM_GAME_URLS[room.game_key]) return false;
+    if(!room || !RANDOM_GAME_URLS[room.game_key]) return false;
     const base = RANDOM_GAME_URLS[room.game_key];
     window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
     return true;
@@ -4395,19 +4394,21 @@
   });
 
   (async ()=>{
-    // Проверку возобновления матча стартуем параллельно с гидрацией, чтобы не добавлять задержку
-    // к загрузке и максимально быстро уйти в игру, если матч есть.
-    const autoResumePromise = maybeAutoResumeActiveGame().catch(()=>false);
     try{
       await hydrateUserFromServer();
       await maybeSyncDepositsOnForeground();
       await loadExternalStats();
       await loadMatchHistory();
     }finally{
-      // Авто-вход в активный/завершённый матч (один раз за сессию), пока ещё показан экран загрузки —
-      // чтобы лобби не мелькало перед переходом в игру. Если перехода нет — обычная загрузка лобби.
+      // Авто-вход проверяем ПОСЛЕ гидрации (а не параллельно с ней, как было раньше), пока ещё
+      // показан экран загрузки — поэтому лобби не мелькает. Почему после, а не параллельно:
+      //  1) первый запрос гидрации «прогревает» serverless-лямбду, и проверка резюма уже не упирается
+      //     в таймаут на холодном старте (раньше параллельный запрос на холодную лямбду мог не успеть
+      //     за таймаут и молча отваливался → показывалось лобби с баннером);
+      //  2) к этому моменту needsOnboarding уже выставлен из ответа сервера (до гидрации онбординг-
+      //     флаги дефолтные, и синхронная проверка в maybeAutoResumeActiveGame ошибочно отсекала вход).
       let autoResumed = false;
-      try{ autoResumed = await autoResumePromise; }catch(e){ autoResumed = false; }
+      try{ autoResumed = await maybeAutoResumeActiveGame(); }catch(e){ autoResumed = false; }
       if(!autoResumed){
         renderAll();
         initNav();
