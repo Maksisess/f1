@@ -492,6 +492,8 @@ function pvpFindMatch() {
   resetPvpMarkers();
   pvpRecovering = false;
   pvpRoomId = null;
+  // Старт онлайн-поиска: убираем roomId из URL (обновление во время поиска начнёт заново, а не повиснет на старой комнате).
+  try { window.history.replaceState(null, '', window.location.pathname + '?launch=play'); } catch (e) {}
   apiPost({
     action: 'pvpFindMatch',
     initData: tgInitData,
@@ -501,6 +503,8 @@ function pvpFindMatch() {
   }).then(function(data) {
     if (!data || !data.ok || !data.room) throw new Error(data && data.error ? data.error : 'Matchmaking failed');
     pvpRoomId = data.room.id;
+    // Сохраняем матч в URL: обновление страницы во время игры вернёт в матч (resume по roomId), а не на экран ставок.
+    try { window.history.replaceState(null, '', window.location.pathname + '?launch=play&roomId=' + encodeURIComponent(pvpRoomId)); } catch (e) {}
     if (String(data.room.status) === 'active' && String(((data.room.state_json || {}).phase || '')) !== 'accept_match') {
       showScreen('game');
     } else {

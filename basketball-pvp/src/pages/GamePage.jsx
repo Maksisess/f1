@@ -987,6 +987,8 @@ const GamePage = () => {
     resetMatchStateRefs();
     stopPvpPolling();
     pvpRoomIdRef.current = null;
+    // Старт онлайн-поиска: убираем roomId из URL (обновление во время поиска начнёт заново).
+    try { window.history.replaceState(null, '', window.location.pathname + '?launch=play'); } catch {}
 
     playModeRef.current = 'pvp';
     if (!tgInitDataRef.current) {
@@ -1008,6 +1010,8 @@ const GamePage = () => {
       if (playModeRef.current !== 'pvp') return;
       if (!data?.ok || !data.room) throw new Error(String(data?.error || 'matchmaking'));
       pvpRoomIdRef.current = data.room.id;
+      // Сохраняем матч в URL: обновление страницы во время игры вернёт в матч (resume по roomId), а не на экран ставок.
+      try { window.history.replaceState(null, '', window.location.pathname + '?launch=play&roomId=' + encodeURIComponent(data.room.id)); } catch {}
       startPvpPolling();
     }).catch((err) => {
       findInFlightRef.current = false;
