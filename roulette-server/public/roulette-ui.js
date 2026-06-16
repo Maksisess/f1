@@ -56,6 +56,12 @@ const ROLLS_SEG_COLORS = [
 const ROLLS_PRESET_DEFAULTS = [1, 3, 5, 20, 50];
 const ROLLS_STAKE_FINE_STEP = 0.1;
 
+/** Минимальный запас (сек) до спина, когда приём ставок закрывается на клиенте, чтобы поздняя
+ *  ставка не улетела «в молоко» (сервер отклонит её после истечения таймера). Реальный порог =
+ *  max(floor, замеренное время приёма ставки + 1с), но не больше ROULETTE_BET_CLOSE_LOCK_MAX_SEC. */
+const ROULETTE_BET_CLOSE_LOCK_FLOOR_SEC = 3;
+const ROULETTE_BET_CLOSE_LOCK_MAX_SEC = 8;
+
 class RouletteUI {
   constructor() {
     this.elements = {
@@ -139,6 +145,10 @@ class RouletteUI {
       timerEndedKey: null,
       /** Верхняя граница отображения секунд (с сервера, см. roulette_timer_duration_seconds) */
       rouletteTimerCap: null,
+      /** Замеренный максимум round-trip приёма ставки (мс) — задаёт порог закрытия приёма. */
+      betRtMaxMs: 0,
+      /** Приём ставок закрыт по таймеру (последние секунды раунда). */
+      betCloseLocked: false,
     };
 
     this._spinFinishTimer = null;
@@ -1020,15 +1030,14 @@ class RouletteUI {
 
               this.clearRoundUIToWaiting({ preserveWheelStrip: true });
 
-              if (String(data.round.winner_user_id) === myUserIdStr) {
-                if (window.userState && typeof window.userState.balance === 'number') {
-                  window.userState.balance = window.userState.balance + parseFloat(data.round.winner_amount);
-                  window.userState.prevBalance = window.userState.balance;
-
-                  if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
-                    window.refreshBalanceUiAfterHydrate();
-                  }
-                }
+              // Баланс обновляем авторитетно с сервера (а не локальной арифметикой по
+              // несуществующему window.userState). Покрывает и выигрыш (+банк), и проигрыш
+              // (списание зафиксировано при ставке) — без перезагрузки приложения.
+              const iParticipated = (data.bets || []).some(
+                (b) => String(b.user_id) === myUserIdStr
+              );
+              if (iParticipated && typeof window.refreshUserBalance === 'function') {
+                window.refreshUserBalance();
               }
             } catch (e) {
               console.error('[Roulette] Case-opening spin failed:', e);
@@ -1267,6 +1276,8 @@ class RouletteUI {
       this.elements.rollsHubText.textContent = `00:${String(s).padStart(2, '0')}`;
       this.elements.rollsHub?.classList.remove('rolls-hub--wait');
     }
+    // Закрываем приём ставок в последние секунды раунда (запас под время приёма ставки).
+    this.applyBetCloseLock(seconds);
   }
 
   onTimerEnd() {
@@ -1337,9 +1348,37 @@ class RouletteUI {
     }
     this.setStakeStepperDisabled(false);
     this.syncStakeDisplay();
+    this.state.betCloseLocked = false;
 
     // Восстанавливаем правильный текст кнопки
     this.updateBetButton(this.state.isInRound);
+  }
+
+  /** Порог (сек) закрытия приёма ставок до спина: запас под реальное время приёма ставки. */
+  betCloseLockSeconds() {
+    const measured = Math.ceil((this.state.betRtMaxMs || 0) / 1000) + 1;
+    return Math.min(
+      ROULETTE_BET_CLOSE_LOCK_MAX_SEC,
+      Math.max(ROULETTE_BET_CLOSE_LOCK_FLOOR_SEC, measured)
+    );
+  }
+
+  /** Закрывает/открывает приём ставок в зависимости от остатка таймера (последние секунды раунда). */
+  applyBetCloseLock(remaining) {
+    // Только во время активного приёма; не вмешиваемся в спин/анимацию (там свой lock).
+    if (this.state.isSpinning || this.state.isAnimating) return;
+    if (this.state.currentRound?.status !== 'active') return;
+    const shouldLock = Number(remaining) <= this.betCloseLockSeconds();
+    if (shouldLock === this.state.betCloseLocked) return;
+    this.state.betCloseLocked = shouldLock;
+    if (shouldLock) {
+      this.setStakeStepperDisabled(true);
+      const hint = document.getElementById('rouletteBetHint');
+      if (hint) hint.textContent = 'Приём ставок закрывается…';
+    } else {
+      this.setStakeStepperDisabled(false);
+      this.updateBetButton(this.state.isInRound);
+    }
   }
 
   setStakeStepperDisabled(disabled) {
@@ -1825,10 +1864,16 @@ class RouletteUI {
       
       // joinRound/raiseBet возвращают полный снимок раунда — применяем его сразу,
       // без отдельного getActiveRound (это главный источник задержки ставки).
+      const _betT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const resp = await this.callAPI(action, {
         [paramName]: amount,
         request_id: this.generateRequestId(action),
       });
+      // Замер реального времени приёма ставки → задаёт порог закрытия приёма (applyBetCloseLock).
+      const _betDt = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - _betT0;
+      if (Number.isFinite(_betDt) && _betDt > 0) {
+        this.state.betRtMaxMs = Math.max(this.state.betRtMaxMs || 0, _betDt);
+      }
       if (wasInRound) this.playBetRaiseSoftSound();
       else this.playBetPlacedSoftSound();
       this.hapticImpact('light');

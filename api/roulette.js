@@ -791,6 +791,92 @@ async function buildRoundResponse(supabase, round, { cacheOnlyPhotos = false } =
   };
 }
 
+// ============================================
+// FAST-PATH: атомарная ставка через RPC roulette_place_bet
+// ============================================
+
+/** Маппинг доменных кодов из plpgsql в человекочитаемые сообщения (как в старом Node-пути). */
+function mapRoulettePlaceBetError(msg, isRaise) {
+  const m = String(msg || "");
+  if (/MIN_BET/.test(m)) return isRaise ? `Минимальное повышение: ${MIN_BET} TON` : `Минимальная ставка: ${MIN_BET} TON`;
+  if (/NO_USER|INSUFFICIENT/.test(m)) return "Недостаточно средств";
+  if (/NO_ROUND/.test(m)) return "Нет активного раунда";
+  if (/NOT_IN_ROUND/.test(m)) return "Вы не в этом раунде";
+  if (/ALREADY_IN_ROUND/.test(m)) return "Вы уже в этом раунде. Используйте повышение ставки.";
+  if (/SPINNING/.test(m)) return isRaise ? "Розыгрыш уже идет, ставку повышать нельзя" : "Розыгрыш уже идет, дождитесь следующего раунда";
+  if (/TIMER_EXPIRED/.test(m)) return isRaise ? "Таймер истек, ставку повышать нельзя" : "Таймер истек, дождитесь следующего раунда";
+  if (/ROUND_CLOSED/.test(m)) return "Раунд уже завершен";
+  return m || "Не удалось обработать ставку";
+}
+
+// Снимок из ответа RPC — без повторных SELECT и без генерации wheelCardsHTML (клиент строит
+// donut из шансов; серверный HTML карточек клиентом не используется). Фото — только из кэша
+// (polling прогреет недостающие аватары следующим тиком).
+function buildRoundResponseFromRpc(rpcResult, isRaise) {
+  const round = rpcResult?.round || null;
+  const rawBets = Array.isArray(rpcResult?.bets) ? rpcResult.bets : [];
+  const betsLight = rawBets.map((b) => {
+    const displayName = displayNameFromProfile(b.first_name, b.last_name, b.username);
+    let photoUrl = null;
+    if (!isRouletteBotId(b.user_id)) {
+      const cached = cacheGet(b.user_id);
+      photoUrl = cached === undefined ? null : cached;
+    }
+    return {
+      id: b.id,
+      user_id: b.user_id,
+      bet_amount: b.bet_amount,
+      chance_percent: b.chance_percent,
+      display_name: displayName,
+      created_at: b.created_at,
+      photo_url: photoUrl,
+    };
+  });
+  const resp = {
+    ok: true,
+    round,
+    bets: betsLight,
+    wheelCardsHTML: "",
+    serverTime: new Date().toISOString(),
+    winner: null,
+    winner_card_index: null,
+    spin_seed: null,
+    spin_pick: null,
+    roulette_timer_duration_seconds: TIMER_DURATION,
+  };
+  if (isRaise) {
+    const mb = rpcResult?.my_bet || {};
+    resp.message = "Ставка повышена";
+    resp.my_bet = {
+      bet_amount: Number(mb.bet_amount || 0),
+      chance_percent: Number(mb.chance_percent || 0),
+    };
+  }
+  return resp;
+}
+
+// Пробует атомарный RPC. Возвращает { handled:true, response } при успехе.
+// Если функция не применена (миграция) — { handled:false } (Node-путь ниже).
+// Доменные ошибки из plpgsql пробрасываются как человекочитаемые Error.
+async function tryRoulettePlaceBetRpc(supabase, tgUserId, amount, isRaise) {
+  const { data, error } = await supabase.rpc("roulette_place_bet", {
+    p_tg_user_id: String(tgUserId),
+    p_amount: amount,
+    p_is_raise: !!isRaise,
+    p_timer_seconds: TIMER_DURATION,
+    p_min_bet: MIN_BET,
+  });
+  if (error) {
+    const msg = String(error.message || "");
+    const code = String(error.code || "");
+    if (code === "PGRST202" || /roulette_place_bet|could not find the function|does not exist|schema cache/i.test(msg)) {
+      return { handled: false };
+    }
+    throw new Error(mapRoulettePlaceBetError(msg, isRaise));
+  }
+  return { handled: true, response: buildRoundResponseFromRpc(data, isRaise) };
+}
+
 // Подставляет бота одинокому игроку, который ждёт дольше BOT_FALLBACK_SECONDS.
 // Идемпотентность: атомарный claim waiting->active по (status, players_count) — выигрывает только
 // один параллельный поллинг, поэтому двойного бота не будет. При ошибке вставки (например, не
@@ -1060,8 +1146,13 @@ async function handleJoinRound(body, tgUserId) {
   if (!betAmount || betAmount < MIN_BET) {
     throw new Error(`Минимальная ставка: ${MIN_BET} TON`);
   }
-  
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // Fast-path: атомарный RPC одним round-trip (FOR UPDATE на users + roulette_rounds).
+  // Если миграция roulette_place_bet ещё не применена — мягкий fallback на прежний путь ниже.
+  const fast = await tryRoulettePlaceBetRpc(supabase, tgUserId, betAmount, false);
+  if (fast.handled) return fast.response;
 
   // Баланс и активный раунд — независимые чтения, тянем параллельно (−1 RTT).
   const [{ data: user }, activeRound] = await Promise.all([
@@ -1181,8 +1272,12 @@ async function handleRaiseBet(body, tgUserId) {
   if (!raiseAmount || raiseAmount < MIN_BET) {
     throw new Error(`Минимальное повышение: ${MIN_BET} TON`);
   }
-  
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // Fast-path: атомарный RPC одним round-trip. Fallback на прежний путь, если миграция не применена.
+  const fast = await tryRoulettePlaceBetRpc(supabase, tgUserId, raiseAmount, true);
+  if (fast.handled) return fast.response;
 
   // Баланс и активный раунд — независимые чтения, тянем параллельно (−1 RTT).
   const [{ data: user }, activeRound] = await Promise.all([

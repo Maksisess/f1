@@ -1060,7 +1060,7 @@
     }
     .rolls-public-history__filter.is-active{border-color:rgba(105,240,174,.55);background:rgba(105,240,174,.12);color:#cfffdf}
     .rolls-public-history__list{flex:1;min-height:120px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px}
-    #page-roulette.rolls-page{--rolls-wheel:min(260px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(290px,48dvh,430px))))}
+    #page-roulette.rolls-page{--rolls-wheel:min(300px,calc(100vw - 24px),max(92px,calc(100dvh - clamp(270px,44dvh,400px))))}
     #page-roulette #rollsMainGameView{
       display:flex;
       flex-direction:column;
@@ -3783,6 +3783,16 @@
     renderWallet();
     renderProfile();
   }
+
+  // Рулетка (roulette-ui.js) живёт вне этого IIFE и обновляет баланс через window.*.
+  // Без этого экспорта баланс после ставки/выигрыша/проигрыша не обновлялся до перезагрузки.
+  window.hydrateUserFromServer = hydrateUserFromServer;
+  window.refreshBalanceUiAfterHydrate = refreshBalanceUiAfterHydrate;
+  window.refreshUserBalance = function(){
+    return Promise.resolve(hydrateUserFromServer({ skipBalanceIncreaseToast: true }))
+      .then(()=> refreshBalanceUiAfterHydrate())
+      .catch(()=>{});
+  };
 
   const F1_DEPOSIT_WAKE_UNTIL_KEY = "f1duel_deposit_wake_until_ms";
   function markDepositSyncWakeWindow(){
