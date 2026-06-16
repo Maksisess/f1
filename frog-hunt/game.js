@@ -189,6 +189,8 @@ document.addEventListener('DOMContentLoaded', function() {
           selectedStakeOptions = [stakeFromUrl];
         }
         syncMyNameFromServer(function() {
+          // Авто-вход/resume: это не поиск соперника, а подключение к уже идущей игре (см. showScreen).
+          window.__pvpResumeConnect = true;
           showScreen('waiting');
           startPvpPolling();
         });
@@ -212,6 +214,19 @@ function showScreen(name) {
   }
   if (name === 'waiting') {
     // Waiting screen is also used under accept modal.
+    // Авто-вход (resume по roomId) — это подключение к идущей игре, а не поиск соперника.
+    var _wp = document.querySelector('#screen-waiting .center-content p');
+    var _wc = document.getElementById('btn-cancel');
+    if (window.__pvpResumeConnect) {
+      if (_wp) _wp.textContent = 'Загрузка активной игры...';
+      if (_wc) _wc.style.display = 'none';
+    } else {
+      if (_wp) _wp.textContent = 'Поиск соперника...';
+      if (_wc) _wc.style.display = '';
+    }
+  } else {
+    // Ушли с экрана ожидания — сбрасываем resume-режим, чтобы обычный поиск снова был «Поиск соперника» с отменой.
+    window.__pvpResumeConnect = false;
   }
 }
 

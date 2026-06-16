@@ -213,6 +213,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     selectedStakeOptions = [stakeFromUrl];
                 }
                 syncMyNameFromServer(function() {
+                    // Авто-вход/resume: подключение к идущей игре, а не поиск соперника (см. showScreen).
+                    window.__pvpResumeConnect = true;
                     showScreen('waiting');
                     startPvpPolling();
                 });
@@ -862,6 +864,20 @@ function showScreen(name) {
     if (name !== 'waiting') {
         if ($('accept-modal')) $('accept-modal').style.display = 'none';
         pvpAcceptDeadlineMs = 0;
+        // Ушли с экрана ожидания — сбрасываем resume-режим.
+        window.__pvpResumeConnect = false;
+    }
+    if (name === 'waiting') {
+        // Авто-вход (resume по roomId) — подключение к идущей игре, а не поиск соперника.
+        var _wh = document.querySelector('#screen-waiting .center-content h2');
+        var _wc = document.getElementById('btn-cancel');
+        if (window.__pvpResumeConnect) {
+            if (_wh) _wh.textContent = 'Загрузка активной игры...';
+            if (_wc) _wc.style.display = 'none';
+        } else {
+            if (_wh) _wh.textContent = 'Ищем соперника...';
+            if (_wc) _wc.style.display = '';
+        }
     }
     if (name === 'start') {
         onlineModeSelected = false;

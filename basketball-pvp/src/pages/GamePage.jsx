@@ -122,6 +122,14 @@ const GamePage = () => {
   };
   
   const [screen, setScreen] = useState(getInitialScreen());
+  // Авто-вход по roomId (resume): на экране ожидания показываем «Загрузка активной игры» без отмены.
+  // Сбрасывается при уходе с экрана ожидания, чтобы обычный поиск снова был «Ищем...» с отменой.
+  const [isResumeConnect, setIsResumeConnect] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return String(p.get('launch') || '').toLowerCase() === 'play' && !!p.get('roomId');
+    } catch { return false; }
+  });
   const [displayName, setDisplayName] = useState('Player');
   const [opponent, setOpponent] = useState('');
   const [playerIndex, setPlayerIndex] = useState(0);
@@ -1206,6 +1214,12 @@ const GamePage = () => {
     }
   }, []);
 
+  // Сброс флага resume при уходе с экрана ожидания — чтобы следующий обычный поиск показывал
+  // «Ищем...» с кнопкой отмены, а не «Загрузка активной игры».
+  useEffect(() => {
+    if (screen !== 'waiting') setIsResumeConnect(false);
+  }, [screen]);
+
   // ============ RENDER ============
   const myName=displayName||'ТЫ',opName=opponent||'OPP',pi=playerIndex;
 
@@ -1269,9 +1283,9 @@ const GamePage = () => {
   if(screen==='waiting') return (
     <div className="h-screen bg-[#0a0a0c] flex flex-col items-center justify-center select-none" style={{ ...ST, ...safeFrameStyle }}>
       <div className="w-20 h-20 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-      <p className="text-white text-3xl uppercase tracking-widest mt-6">ИЩЕМ...</p>
-      {!!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
-      <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>
+      <p className={`text-white mt-6 ${isResumeConnect ? 'text-xl font-bold' : 'text-3xl uppercase tracking-widest'}`}>{isResumeConnect ? 'Загрузка активной игры...' : 'ИЩЕМ...'}</p>
+      {!isResumeConnect && !!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
+      {!isResumeConnect && <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>}
       {!!acceptInfo && (
         <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-gradient-to-b from-[#6a3b1f] to-[#3f2517] border border-emerald-200/35 rounded-2xl p-5 text-center shadow-2xl">

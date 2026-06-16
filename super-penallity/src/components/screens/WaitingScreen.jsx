@@ -8,19 +8,22 @@ export const WaitingScreen = ({
   acceptInfo,
   acceptTick,
   onCancel,
+  isResume = false,
 }) => {
   const leftSec = Math.max(0, Math.ceil((Number(acceptInfo?.deadlineMs || 0) - Date.now()) / 1000)) + (acceptTick * 0);
   return (
     <div className={`h-screen ${darkBg} flex flex-col items-center justify-center overflow-hidden font-sans select-none`} style={safeFrameStyle}>
       <div className="z-10 flex flex-col items-center gap-6">
         <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-white text-xl font-bold">Ищем соперника...</p>
-        {!!selectedStakeOptions.length && (
+        <p className="text-white text-xl font-bold">{isResume ? 'Загрузка активной игры...' : 'Ищем соперника...'}</p>
+        {!isResume && !!selectedStakeOptions.length && (
           <p className="text-gray-400 text-sm">Ставки: {selectedStakeOptions.join(', ')} TON</p>
         )}
-        <button onClick={onCancel} className="text-gray-400 hover:text-white text-sm mt-4 px-6 py-2 border border-white/10 rounded-lg transition-colors">
-          Отмена
-        </button>
+        {!isResume && (
+          <button onClick={onCancel} className="text-gray-400 hover:text-white text-sm mt-4 px-6 py-2 border border-white/10 rounded-lg transition-colors">
+            Отмена
+          </button>
+        )}
       </div>
       {!!acceptInfo && (
         <div className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4">

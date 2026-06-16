@@ -73,6 +73,10 @@ const GamePage = () => {
   const [bottomNotice, setBottomNotice] = useState('');
   const [acceptInfo, setAcceptInfo] = useState(null);
   const [acceptTick, setAcceptTick] = useState(0);
+  // Авто-вход по roomId (resume): на экране ожидания показываем «Загрузка активной игры» без отмены.
+  // Сбрасывается, как только уходим с экрана ожидания, чтобы обычный поиск (напр. «играть снова»)
+  // снова показывал «Ищем соперника» с кнопкой отмены.
+  const [isResumeConnect, setIsResumeConnect] = useState(false);
   const [showConnectionError, setShowConnectionError] = useState(false);
 
   const playerIndexRef = useRef(0);
@@ -752,6 +756,7 @@ const GamePage = () => {
         // Восстанавливаем ставку из URL для кнопки "Играть снова"
         const stakeFromUrl = Number(params.get('stake') || 0);
         if (stakeFromUrl > 0) setSelectedStakeOptions([stakeFromUrl]);
+        setIsResumeConnect(true);
         setScreen('waiting');
         startPvpPolling();
       } else {
@@ -759,6 +764,12 @@ const GamePage = () => {
       }
     }
   }, []);
+
+  // Как только ушли с экрана ожидания — сбрасываем флаг resume, чтобы следующий обычный поиск
+  // показывал «Ищем соперника» с кнопкой отмены, а не «Загрузка активной игры».
+  useEffect(() => {
+    if (screen !== 'waiting') setIsResumeConnect(false);
+  }, [screen]);
 
   // ==================== RENDER ====================
 
@@ -790,6 +801,7 @@ const GamePage = () => {
         acceptInfo={acceptInfo}
         acceptTick={acceptTick}
         onCancel={handleCancelWait}
+        isResume={isResumeConnect}
       />
     );
   }
