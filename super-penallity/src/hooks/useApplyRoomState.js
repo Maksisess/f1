@@ -50,6 +50,9 @@ export function useApplyRoomState({
     // предотвращает лишние setState и render'ы.
     const incomingMs = Number(new Date(room.updated_at || 0).getTime()) || 0;
     if (incomingMs > 0 && incomingMs < lastAppliedUpdatedAtRef.current) return;
+    // Первое применение состояния после монтирования/реконнекта (resume). До него
+    // lastAppliedUpdatedAtRef === 0 (room.updated_at от сервера всегда > 0).
+    const isFirstApply = lastAppliedUpdatedAtRef.current === 0;
     if (incomingMs > 0) lastAppliedUpdatedAtRef.current = incomingMs;
     const s = room.state_json || {};
 
@@ -138,6 +141,14 @@ export function useApplyRoomState({
 
     // A3: синхронизируем turnId из сервера
     if (s.turnId) turnIdRef.current = String(s.turnId);
+
+    // RESUME: при заходе в фазу ввода НЕ проигрываем уже завершённый раунд. Синхронизируем marker
+    // на текущий — тогда round_start ниже покажет ТЕКУЩИЙ ход с верным счётом (round_start несёт
+    // scores), а не анимацию прошлого раунда после серверного догона. round_result (заход прямо во
+    // время результата) и match_over обрабатываются как обычно (показывают актуальное состояние).
+    if (isFirstApply && s.phase === 'turn_input') {
+      pvpLastRoundMarkerRef.current = Number((s.lastRoundResult || {}).marker || 0);
+    }
 
     // A1: серверно-подтверждённая зона текущего раунда (если игрок уже отправил ход).
     // КРИТИЧНО: Number(null) === 0 в JS — проверяем null/undefined ЯВНО до конверсии,

@@ -496,6 +496,8 @@ function applyPvpRoomState(room) {
         return;
     }
     pvpLastProcessedStateHash = stateHash;
+    // Первое применение состояния после монтирования/реконнекта (resume): до него updatedAt === 0.
+    var isFirstApply = pvpLastAppliedUpdatedAtMs === 0;
     if (incomingMs > 0) pvpLastAppliedUpdatedAtMs = incomingMs;
 
     // ── ACCEPT MATCH ──────────────────────────────────────────────────────────
@@ -551,6 +553,19 @@ function applyPvpRoomState(room) {
         $('opp-name-traps').textContent = currentStakeTon != null && isFinite(currentStakeTon)
             ? ('Дорожка: ' + opponentName + ' · ' + currentStakeTon + ' TON')
             : ('Дорожка: ' + opponentName);
+    }
+
+    // RESUME: при заходе в фазу бега НЕ проигрываем уже завершённый раунд после серверного догона.
+    // Снапим счёт из состояния (running-стартовое сообщение его не несёт) и синхронизируем marker,
+    // чтобы ниже показался ТЕКУЩИЙ забег с верным счётом, без анимации прошлого раунда. Заход прямо
+    // во время round_result или match_over обрабатывается как обычно (показывает актуальное).
+    if (isFirstApply && phase === 'running') {
+        pvpLastRoundMarker = Number((s.lastRoundResult || {}).marker || 0);
+        scores[0] = Number(sc[sides.mySide] || 0);
+        scores[1] = Number(sc[sides.oppSide] || 0);
+        var _sb0 = $('sb-score-0'), _sb1 = $('sb-score-1');
+        if (_sb0) _sb0.textContent = String(scores[0]);
+        if (_sb1) _sb1.textContent = String(scores[1]);
     }
 
     // ── PLACING TRAPS ─────────────────────────────────────────────────────────
