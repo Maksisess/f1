@@ -1157,7 +1157,7 @@
     .rolls-stake-ton{font-size:13px;font-weight:800;color:rgba(255,255,255,.5);letter-spacing:.02em}
     #page-roulette .rolls-stake-ton{font-size:clamp(10px,2.8vw,13px)}
     .rolls-preset-wrap{margin-top:4px;margin-bottom:4px}
-    #page-roulette .rolls-preset-wrap{margin-top:0;margin-bottom:0}
+    #page-roulette .rolls-preset-wrap{margin-top:clamp(7px,2.2vw,11px);margin-bottom:0}
     .rolls-preset-hint{font-size:11px;font-weight:650;color:rgba(255,255,255,.45);line-height:1.35;margin-bottom:10px}
     #page-roulette .rolls-preset-hint{font-size:clamp(9px,2.5vw,11px);margin-bottom:clamp(4px,1.5vw,8px)}
     .rolls-preset-rows{display:flex;flex-direction:column;gap:8px;align-items:stretch}
@@ -1184,6 +1184,8 @@
     /* Компактная страница рулетки: статус и лейбл скрыты, «?» в строке игроков, степпер+кнопка в ряд */
     #page-roulette #rouletteStatusText{display:none}
     #page-roulette #rouletteBetLabel{display:none}
+    /* Таблица «Ваша ставка/Ваш шанс» в меню скрыта — инфо есть в списке игроков ниже */
+    #page-roulette #rouletteCurrentBetInfo{display:none}
     .rolls-help-inline{flex:0 0 auto;align-self:stretch;height:auto;width:clamp(42px,11vw,50px);border-radius:clamp(12px,3.5vw,16px)}
     .rolls-bet-row{display:flex;align-items:stretch;gap:clamp(6px,2vw,9px)}
     .rolls-bet-row .rolls-stake-row{flex:1.3 1 0;min-width:0}
@@ -4442,7 +4444,7 @@
 
 <!-- Roulette UI Script -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_TMA_COMPACT_20260615"></script>
+<script src="/roulette-server/public/roulette-ui.js?v=ROLLS_TMA_FAST_BOT_20260616"></script>
 
 </body>
 </html>

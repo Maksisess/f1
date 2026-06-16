@@ -9,7 +9,7 @@
 const ROULETTE_SPIN_EASE = { x1: 0.06, y1: 0.72, x2: 0.12, y2: 1 };
 
 /** Длина активной фазы раунда (сек); должен совпадать с `TIMER_DURATION` в api/roulette.js */
-const ROULETTE_ROUND_TIMER_SECONDS = 8;
+const ROULETTE_ROUND_TIMER_SECONDS = 30;
 
 const ROULETTE_DEBUG =
   typeof localStorage !== 'undefined' && localStorage.getItem('rouletteDebug') === '1';
@@ -53,7 +53,7 @@ const ROLLS_SEG_COLORS = [
   '#ab47bc',
 ];
 
-const ROLLS_PRESET_DEFAULTS = [1, 5, 10, 20, 50, 100];
+const ROLLS_PRESET_DEFAULTS = [1, 3, 5, 20, 50];
 const ROLLS_STAKE_FINE_STEP = 0.1;
 
 class RouletteUI {
@@ -820,10 +820,11 @@ class RouletteUI {
     return ROULETTE_ROUND_TIMER_SECONDS;
   }
 
-  async loadActiveRound() {
+  async loadActiveRound(prefetched = null) {
     try {
       // Защита от гонок (polling + realtime одновременно).
-      if (this.state.isLoadingRound) return;
+      // prefetched — готовый снимок раунда (из ответа joinRound/raiseBet): применяем без лишнего запроса.
+      if (!prefetched && this.state.isLoadingRound) return;
       this.state.isLoadingRound = true;
 
       // Во время локальной анимации не трогаем UI из polling,
@@ -833,7 +834,7 @@ class RouletteUI {
         return;
       }
 
-      const data = await this.callAPI('getActiveRound');
+      const data = prefetched || await this.callAPI('getActiveRound');
       const td = Number(data?.roulette_timer_duration_seconds);
       if (Number.isFinite(td) && td >= 3 && td <= 240) {
         this.state.rouletteTimerCap = td;
@@ -1822,34 +1823,42 @@ class RouletteUI {
       const action = wasInRound ? 'raiseBet' : 'joinRound';
       const paramName = wasInRound ? 'raiseAmount' : 'betAmount';
       
-      await this.callAPI(action, {
+      // joinRound/raiseBet возвращают полный снимок раунда — применяем его сразу,
+      // без отдельного getActiveRound (это главный источник задержки ставки).
+      const resp = await this.callAPI(action, {
         [paramName]: amount,
         request_id: this.generateRequestId(action),
       });
       if (wasInRound) this.playBetRaiseSoftSound();
       else this.playBetPlacedSoftSound();
       this.hapticImpact('light');
-      
+
       // Показываем правильное уведомление на основе ПРЕДЫДУЩЕГО состояния
       this.showToast(wasInRound ? 'Ставка повышена!' : 'Ставка принята!');
-      
+
       this.closeBetModal();
-      
+
       // Сброс суммы после успешной ставки
       this.setMainStake(0);
-      
-      // Reload round data
-      await this.loadActiveRound();
+
+      // Применяем снимок из ответа сразу; если его нет — обычная загрузка.
+      if (resp && resp.round) {
+        await this.loadActiveRound(resp);
+      } else {
+        await this.loadActiveRound();
+      }
       this.state.lastSidePanelsFetchAt = 0;
       this.loadRecentWinners(true).catch(() => {});
 
-      // Refresh user balance
+      // Баланс обновляем в ФОНЕ — не блокируем отрисовку ставки.
       if (typeof window.hydrateUserFromServer === 'function') {
-        // ВАЖНО: Передаем skipBalanceIncreaseToast чтобы не показывать toast о пополнении
-        await window.hydrateUserFromServer({ skipBalanceIncreaseToast: true });
-        if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
-          window.refreshBalanceUiAfterHydrate();
-        }
+        Promise.resolve(window.hydrateUserFromServer({ skipBalanceIncreaseToast: true }))
+          .then(() => {
+            if (typeof window.refreshBalanceUiAfterHydrate === 'function') {
+              window.refreshBalanceUiAfterHydrate();
+            }
+          })
+          .catch(() => {});
       }
     } catch (error) {
       console.error('[Roulette] Bet error:', error);

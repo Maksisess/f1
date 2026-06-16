@@ -13,7 +13,19 @@ const MIN_BET = 0.1;
 const PLATFORM_FEE_PERCENT = 0;
 
 // Длительность таймера (секунды) — совпадайте с ROULETTE_ROUND_TIMER_SECONDS на клиенте
-const TIMER_DURATION = 8;
+const TIMER_DURATION = 30;
+// Бот-фоллбэк: если игрок один и за это время не пришёл второй — подставляем бота со ставкой,
+// равной ставке игрока, и быстро доигрываем раунд.
+const BOT_FALLBACK_SECONDS = 60;
+const BOT_SPIN_DELAY_SECONDS = 5;
+// Пул бот-«игроков» (реальные строки в users, см. миграцию). Имена — из общего пула ников
+// (как у ботов других игр), чтобы бот не отличался от реального игрока. Имя берётся из
+// users.first_name; кол-во должно совпадать с числом строк в миграции 20260616_roulette_bot_pool.sql.
+const ROULETTE_BOT_COUNT = 30;
+const ROULETTE_BOT_IDS = Array.from({ length: ROULETTE_BOT_COUNT }, (_, i) => `roulette_bot_${i + 1}`);
+function isRouletteBotId(id) {
+  return typeof id === "string" && id.startsWith("roulette_bot_");
+}
 const ACTION_RATE_LIMIT_PER_MIN = 10;
 const ACTION_MIN_INTERVAL_MS = 400;
 const MUTATING_ACTIONS = new Set(["joinRound", "raiseBet", "spinRoulette"]);
@@ -644,11 +656,19 @@ function hashCode(str) {
 
 async function handleGetActiveRound(body) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  
+
   let round = await getActiveRound();
-  
+
   if (!round) {
     return { ok: true, round: null, bets: [], wheelCardsHTML: '', serverTime: new Date().toISOString(), roulette_timer_duration_seconds: TIMER_DURATION };
+  }
+
+  // BOT-FALLBACK: одинокий игрок + истёк BOT_FALLBACK_SECONDS → подставляем бота со ставкой игрока.
+  // Триггерится на поллинге самого игрока (как в PvP), без крона.
+  try {
+    round = (await maybeAddRouletteBot(supabase, round)) || round;
+  } catch (e) {
+    console.error("[Roulette API] bot fallback failed:", e?.message || e);
   }
 
   // SERVER-DRIVEN SPIN:
@@ -673,7 +693,14 @@ async function handleGetActiveRound(body) {
       }
     }
   }
-  
+
+  return await buildRoundResponse(supabase, round);
+}
+
+// Собирает полный снимок раунда (ставки, аватарки, карточки колеса, победитель) для клиента.
+// Возвращается и из getActiveRound (поллинг), и из joinRound/raiseBet — чтобы клиент применял
+// результат ставки сразу, без отдельного запроса (оптимизация задержки ставки).
+async function buildRoundResponse(supabase, round) {
   const bets = await getRoundBets(round.id);
 
   // Аватарки нужны на карточках, но нельзя тормозить polling.
@@ -685,7 +712,7 @@ async function handleGetActiveRound(body) {
         bet.users?.last_name,
         bet.users?.username
       );
-      const photoUrl = await getTelegramPhotoUrlCached(bet.user_id, 650);
+      const photoUrl = isRouletteBotId(bet.user_id) ? null : await getTelegramPhotoUrlCached(bet.user_id, 650);
       return {
         id: bet.id,
         user_id: bet.user_id,
@@ -710,24 +737,24 @@ async function handleGetActiveRound(body) {
       photo_url: bet.photo_url || null,
     };
   });
-  
+
   // ГЕНЕРИРУЕМ КАРТОЧКИ НА СЕРВЕРЕ
   // КРИТИЧЕСКИ ВАЖНО: порядок карточек должен быть ОДИН на весь раунд,
   // иначе winner_card_index может указывать на другую карточку на фронте.
   const wheelSeed = `${round.id}`;
   const wheelCardsCount = getAdaptiveWheelCardCount(betsLight.length);
-  const wheelCards = betsLight.length > 0 
-    ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount) 
+  const wheelCards = betsLight.length > 0
+    ? generateWheelCards(betsLight, wheelSeed, wheelCardsCount)
     : [];
 
   // Победитель и угол остановки: spin_pick + winner_user_id из БД (после finalizeRoundSpin).
   // Старый self-heal по winner_card_index / ленте карточек отключён — он расходился с donut UI.
 
   // ГЕНЕРИРУЕМ HTML НА СЕРВЕРЕ
-  const wheelCardsHTML = wheelCards.length > 0 
+  const wheelCardsHTML = wheelCards.length > 0
     ? generateWheelCardsHTML(wheelCards)
     : '';
-  
+
   console.log('[Roulette API] Generated', wheelCards.length, 'cards and HTML for round', round.id, 'with', betsLight.length, 'players');
 
   // Если раунд завершён — вернём winner объект (включая photo_url), чтобы всем клиентам было что показать.
@@ -740,7 +767,7 @@ async function handleGetActiveRound(body) {
       // Для победителя важнее точность, чем микролатентность:
       // если в bets нет фото, принудительно пробуем прямой запрос (без null-кэша).
       photoUrl = winnerBet?.photo_url;
-      if (!photoUrl) {
+      if (!photoUrl && !isRouletteBotId(round.winner_user_id)) {
         try {
           photoUrl = await withTimeout(getTelegramPhotoUrl(round.winner_user_id), 1500);
           if (photoUrl) cacheSet(round.winner_user_id, photoUrl);
@@ -753,7 +780,7 @@ async function handleGetActiveRound(body) {
     }
     winner = { user_id: String(round.winner_user_id), display_name: displayName, photo_url: photoUrl };
   }
-  
+
   return {
     ok: true,
     round,
@@ -766,6 +793,76 @@ async function handleGetActiveRound(body) {
     spin_pick: round.spin_pick != null && round.spin_pick !== "" ? Number(round.spin_pick) : null,
     roulette_timer_duration_seconds: TIMER_DURATION,
   };
+}
+
+// Подставляет бота одинокому игроку, который ждёт дольше BOT_FALLBACK_SECONDS.
+// Идемпотентность: атомарный claim waiting->active по (status, players_count) — выигрывает только
+// один параллельный поллинг, поэтому двойного бота не будет. При ошибке вставки (например, не
+// применена миграция бот-юзеров) — откат в waiting, игрок просто продолжает ждать.
+async function maybeAddRouletteBot(supabase, round) {
+  if (!round || round.status !== 'waiting') return round;
+  if (Number(round.players_count) !== 1) return round;
+  const createdMs = new Date(round.created_at).getTime();
+  if (!Number.isFinite(createdMs)) return round;
+  if (Date.now() - createdMs < BOT_FALLBACK_SECONDS * 1000) return round;
+
+  // Берём ставку одинокого живого игрока (бота быть не должно — но фильтруем на всякий случай).
+  const { data: curBets } = await supabase
+    .from("roulette_bets")
+    .select("user_id, bet_amount")
+    .eq("round_id", round.id);
+  const realBets = (curBets || []).filter((b) => !isRouletteBotId(b.user_id));
+  if (realBets.length !== 1) return round;
+  const botBet = parseFloat(realBets[0].bet_amount);
+  if (!Number.isFinite(botBet) || botBet < MIN_BET) return round;
+
+  // Атомарный claim: только один поллинг переведёт waiting->active при players_count=1.
+  const { data: claimed } = await supabase
+    .from("roulette_rounds")
+    .update({
+      status: "active",
+      started_at: round.started_at || new Date().toISOString(),
+      timer_ends_at: new Date(Date.now() + BOT_SPIN_DELAY_SECONDS * 1000).toISOString(),
+    })
+    .eq("id", round.id)
+    .eq("status", "waiting")
+    .eq("players_count", 1)
+    .select()
+    .single();
+  if (!claimed) {
+    const { data: fresh } = await supabase.from("roulette_rounds").select("*").eq("id", round.id).single();
+    return fresh || round;
+  }
+
+  // Вставляем ставку бота = ставке игрока. Баланс бота НЕ трогаем (его «взнос» финансирует дом).
+  const botId = ROULETTE_BOT_IDS[Math.floor(Math.random() * ROULETTE_BOT_IDS.length)];
+  const { error: insErr } = await supabase
+    .from("roulette_bets")
+    .insert({ round_id: round.id, user_id: botId, bet_amount: botBet, chance_percent: 0 });
+  if (insErr) {
+    // Откат, чтобы раунд не завис в active с одним игроком (например, миграция не применена).
+    await supabaseUpdate("roulette_rounds", round.id, { status: "waiting", timer_ends_at: null });
+    console.error("[Roulette API] bot bet insert failed, reverted to waiting:", insErr?.message || insErr);
+    const { data: fresh } = await supabase.from("roulette_rounds").select("*").eq("id", round.id).single();
+    return fresh || round;
+  }
+
+  // Пересчитать банк/игроков и шансы.
+  const { data: allBets } = await supabase
+    .from("roulette_bets")
+    .select("user_id, bet_amount")
+    .eq("round_id", round.id);
+  const realPot = (allBets || []).reduce((s, b) => s + parseFloat(b.bet_amount || 0), 0);
+  const playersCount = [...new Set((allBets || []).map((b) => b.user_id))].length;
+  await supabaseUpdate("roulette_rounds", round.id, {
+    pot_amount: realPot,
+    players_count: playersCount,
+    total_bets_count: (allBets || []).length,
+  });
+  await calculateChances(round.id);
+
+  const { data: fresh } = await supabase.from("roulette_rounds").select("*").eq("id", round.id).single();
+  return fresh || round;
 }
 
 async function tryLockRoundForSpin(supabase, roundId, requireTimerExpired = false) {
@@ -804,17 +901,20 @@ async function finalizeRoundSpin(supabase, round) {
   const platformFee = totalPot * (PLATFORM_FEE_PERCENT / 100);
   const winnerAmount = totalPot - platformFee;
 
-  const { data: winner } = await supabase
-    .from("users")
-    .select("balance")
-    .eq("tg_user_id", winnerId)
-    .single();
-
-  if (winner) {
-    await supabase
+  // Боту-победителю баланс НЕ начисляем: его выигрыш — это удержанная ставка живого игрока (доход дома).
+  if (!isRouletteBotId(winnerId)) {
+    const { data: winner } = await supabase
       .from("users")
-      .update({ balance: parseFloat(winner.balance) + winnerAmount })
-      .eq("tg_user_id", winnerId);
+      .select("balance")
+      .eq("tg_user_id", winnerId)
+      .single();
+
+    if (winner) {
+      await supabase
+        .from("users")
+        .update({ balance: parseFloat(winner.balance) + winnerAmount })
+        .eq("tg_user_id", winnerId);
+    }
   }
 
   await supabaseUpdate("roulette_rounds", round.id, {
@@ -854,6 +954,8 @@ async function finalizeRoundSpin(supabase, round) {
   });
 
   for (const bet of bets) {
+    // Боту не пишем balance-события (у него нет истории/UI).
+    if (isRouletteBotId(bet.user_id)) continue;
     const isWinner = String(bet.user_id) === String(winnerId);
     const eventType = isWinner ? "win" : "loss";
     const amount = isWinner ? winnerAmount : -parseFloat(bet.bet_amount);
@@ -1069,8 +1171,14 @@ async function handleJoinRound(body, tgUserId) {
     .from("users")
     .update({ balance: user.balance - betAmount })
     .eq("tg_user_id", tgUserId);
-  
-  return { ok: true, message: "Ставка принята" };
+
+  // Возвращаем полный снимок раунда — клиент применит его сразу, без отдельного getActiveRound.
+  const { data: freshRound } = await supabase
+    .from("roulette_rounds")
+    .select("*")
+    .eq("id", round.id)
+    .single();
+  return await buildRoundResponse(supabase, freshRound || round);
 }
 
 async function handleRaiseBet(body, tgUserId) {
@@ -1188,9 +1296,16 @@ async function handleRaiseBet(body, tgUserId) {
     .eq("round_id", round.id)
     .eq("user_id", tgUserId)
     .single();
-  
+
+  // Полный снимок раунда — клиент применит сразу, без отдельного getActiveRound.
+  const { data: freshRound } = await supabase
+    .from("roulette_rounds")
+    .select("*")
+    .eq("id", round.id)
+    .single();
+  const snapshot = await buildRoundResponse(supabase, freshRound || round);
   return {
-    ok: true,
+    ...snapshot,
     message: "Ставка повышена",
     my_bet: refreshedBet ? {
       bet_amount: parseFloat(refreshedBet.bet_amount || 0),
