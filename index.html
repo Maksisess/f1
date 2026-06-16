@@ -2917,63 +2917,29 @@
     });
   })();
 
-  // ===== АВТО-ВХОД В МАТЧ ПРИ (ПЕРЕ)ОТКРЫТИИ ПРИЛОЖЕНИЯ =====
-  // При запуске приложения: если есть живой матч — сразу открываем игру, минуя страницу игр; если
-  // матч завершился, пока игрока не было — открываем игру с экраном результата.
-  // Срабатывает ОДИН раз за сессию webview (sessionStorage Telegram очищает при реальном закрытии
-  // мини-приложения, но НЕ при навигации игра→лобби), поэтому возврат из игры в лобби не выбрасывает
-  // обратно в матч, а закрытие+повторное открытие — выбрасывает. Завершённые итоги дополнительно
-  // дедуплицируются (localStorage), чтобы один и тот же результат не показывался повторно.
-  const AUTORESUME_SESSION_KEY = "f1_autoresume_done";
-  const SEEN_RESULTS_KEY = "f1_seen_results";
-  function autoResumeChecked(){
-    try{ return sessionStorage.getItem(AUTORESUME_SESSION_KEY) === "1"; }catch(e){ return false; }
-  }
-  function markAutoResumeChecked(){
-    try{ sessionStorage.setItem(AUTORESUME_SESSION_KEY, "1"); }catch(e){}
-  }
-  function isResumeResultSeen(roomId){
-    try{
-      const arr = JSON.parse(localStorage.getItem(SEEN_RESULTS_KEY) || "[]");
-      return Array.isArray(arr) && arr.indexOf(String(roomId)) >= 0;
-    }catch(e){ return false; }
-  }
-  function markResumeResultSeen(roomId){
-    try{
-      let arr = JSON.parse(localStorage.getItem(SEEN_RESULTS_KEY) || "[]");
-      if(!Array.isArray(arr)) arr = [];
-      if(arr.indexOf(String(roomId)) < 0){
-        arr.push(String(roomId));
-        while(arr.length > 50) arr.shift();
-        localStorage.setItem(SEEN_RESULTS_KEY, JSON.stringify(arr));
-      }
-    }catch(e){}
-  }
+  // ===== АВТО-ВХОД В АКТИВНЫЙ МАТЧ ПРИ (ПЕРЕ)ОТКРЫТИИ ПРИЛОЖЕНИЯ =====
+  // На КАЖДОЙ загрузке оболочки: если у игрока есть живой матч — сразу открываем игру, минуя меню.
+  // Делать это безусловно безопасно: во время активного матча в играх НЕТ кнопки выхода в лобби
+  // (выйти можно только закрыв приложение — матч при этом доигрывается по таймеру на сервере).
+  // Значит, загрузка index.html с активным матчем = именно повторное открытие приложения, а не
+  // возврат из игры, поэтому петли «выброса обратно в матч» не возникает.
+  // (Прошлая версия гейтила это флагом sessionStorage «один раз за сессию» — но Telegram на части
+  //  платформ переиспользует webview-контекст при закрытии, флаг переживал перезаход и навсегда
+  //  блокировал авто-вход. Поэтому от флага отказались.)
   // true → инициирован переход в игру (страница уходит, грузить лобби не нужно).
   async function maybeAutoResumeActiveGame(){
-    if(autoResumeChecked()) return false;
     if(typeof needsOnboarding === "function" && needsOnboarding()) return false;
-    markAutoResumeChecked();
     if(!hasTgAuth) return false;
     let data = null;
     try{
-      data = await apiJson("/api/user", { action: "pvpGetResumeTarget", initData: tgInitData }, { timeoutMs: 3500 });
+      data = await apiJson("/api/user", { action: "pvpGetResumeTarget", initData: tgInitData }, { timeoutMs: 6000 });
     }catch(e){ return false; }
     const room = data && data.room ? data.room : null;
     const kind = data ? String(data.kind || "") : "";
-    if(!room || !RANDOM_GAME_URLS[room.game_key]) return false;
+    if(!room || kind !== "active" || !RANDOM_GAME_URLS[room.game_key]) return false;
     const base = RANDOM_GAME_URLS[room.game_key];
-    if(kind === "active"){
-      window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
-      return true;
-    }
-    if(kind === "finished"){
-      if(isResumeResultSeen(room.id)) return false; // итог уже показывали — не всплываем повторно
-      markResumeResultSeen(room.id);
-      window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
-      return true;
-    }
-    return false;
+    window.location.href = base + "?launch=play&roomId=" + encodeURIComponent(room.id);
+    return true;
   }
 
   // ===== ГАРД АКТИВНОГО МАТЧА — модалка «Продолжить/Сдаться» перед запуском любой игры =====
