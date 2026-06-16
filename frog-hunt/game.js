@@ -17,6 +17,18 @@ var SETTINGS_KEY = "f1duel_global_settings_v1";
 var tgInitData = '';
 var isBotMode = false;
 var pvpRoomId = null;
+
+// Помечаем room_id матча «просмотренным» — shell на главной не покажет модалку результата повторно.
+// Матч, завершённый пока игрока не было, сюда не попадёт → shell покажет его один раз.
+function markMatchResultSeen(roomId) {
+  try {
+    if (roomId == null) return;
+    var key = 'f1_seen_match_results';
+    var a = JSON.parse(localStorage.getItem(key) || '[]');
+    var s = String(roomId);
+    if (a.indexOf(s) < 0) { a.push(s); while (a.length > 60) a.shift(); localStorage.setItem(key, JSON.stringify(a)); }
+  } catch (e) {}
+}
 var pvpPollTimer = null;
 var pvpLastRoundMarker = 0;
 var pvpLastGameMarker = 0;
@@ -588,6 +600,7 @@ function applyPvpRoomState(room) {
       return;
     }
     stopPvpPolling();
+    markMatchResultSeen(room.id);
     if (s.leftBy && String(s.leftBy) !== String(tgUserId) && String(s.leaveKind || '') === 'explicit') {
       onOpponentLeftVictory(room);
     } else if (String(room.winner_tg_user_id || '') === String(tgUserId) && !!s.endedByLeave && String(s.leaveKind || '') === 'explicit') {
@@ -762,6 +775,7 @@ function applyPvpRoomState(room) {
   if (s.phase === 'match_over' && Number((s.markers || {}).match || 0) > pvpLastMatchMarker) {
     pvpLastMatchMarker = Number((s.markers || {}).match || 0);
     stopPvpPolling();
+    markMatchResultSeen(room.id);
     if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(tgUserId) && String(s.leaveKind || '') === 'explicit') {
       onOpponentLeftVictory(room);
       return;

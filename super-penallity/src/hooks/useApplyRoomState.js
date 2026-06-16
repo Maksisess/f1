@@ -1,5 +1,17 @@
 import { useCallback } from 'react';
 
+// Помечаем room_id матча «просмотренным» — shell на главной не покажет модалку результата
+// повторно. Матч, завершённый пока игрока не было, сюда не попадёт → shell покажет его один раз.
+function markMatchResultSeen(roomId) {
+  try {
+    if (roomId == null) return;
+    const key = 'f1_seen_match_results';
+    const a = JSON.parse(localStorage.getItem(key) || '[]');
+    const s = String(roomId);
+    if (a.indexOf(s) < 0) { a.push(s); while (a.length > 60) a.shift(); localStorage.setItem(key, JSON.stringify(a)); }
+  } catch {}
+}
+
 // Преобразует room.state_json от сервера в события для handleServerMessage:
 //   match_over   → match_result
 //   accept_match → screen='waiting' + acceptInfo
@@ -61,6 +73,7 @@ export function useApplyRoomState({
       || String(s.phase || '') === 'match_over';
 
     if (matchOver) {
+      markMatchResultSeen(room.id);
       // Идемпотентность завершения матча инкапсулирована в case 'match_result'.
       // Здесь только готовим данные и единожды вызываем — без двойного cleanup'а.
       if (matchEndedRef.current) return;
@@ -225,6 +238,10 @@ export function useApplyRoomState({
           history: Array.isArray(s.history) ? s.history : [],
           // phaseAtMs (серверная отметка начала turn_input) для синхронизации таймера
           phaseAtMs: Number(s.phaseAtMs || 0),
+          // isResume: только при первом применении (заход/перезаход в середине хода) считаем
+          // остаток до серверного авто-резолва; на обычном ходу — фиксированные 15с (стабильно,
+          // без скачков 5↔15 из-за неустоявшегося clock-offset).
+          isResume: isFirstApply,
         });
       }
     }

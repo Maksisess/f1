@@ -43,6 +43,18 @@ let pvpAcceptDeadlineMs = 0;
 let pvpAcceptTickInterval = null;
 let pvpRoomId = null;
 let pvpPollTimer = null;
+
+// Помечаем room_id матча «просмотренным» — shell на главной не покажет модалку результата повторно.
+// Матч, завершённый пока игрока не было, сюда не попадёт → shell покажет его один раз.
+function markMatchResultSeen(roomId) {
+    try {
+        if (roomId == null) return;
+        const key = 'f1_seen_match_results';
+        const a = JSON.parse(localStorage.getItem(key) || '[]');
+        const s = String(roomId);
+        if (a.indexOf(s) < 0) { a.push(s); while (a.length > 60) a.shift(); localStorage.setItem(key, JSON.stringify(a)); }
+    } catch (e) {}
+}
 let pvpPollInFlight = false;
 let pvpLastRoundMarker = 0;
 let pvpLastXrayMarker = 0;
@@ -605,6 +617,7 @@ function applyPvpRoomState(room) {
     // ── MATCH OVER / FINISHED ─────────────────────────────────────────────────
     if (phase === 'match_over' || status === 'finished') {
         stopPvpPolling();
+        markMatchResultSeen(room.id);
         pvpRoomId = null;
         if (s.endedByLeave && s.leftBy && String(s.leftBy) !== String(window._tgUserId || '')) {
             onOpponentLeft();

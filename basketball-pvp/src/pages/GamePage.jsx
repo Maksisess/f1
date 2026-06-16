@@ -17,6 +17,23 @@ function appSettings() {
 // ============ SOUNDS (pooled) ============
 const SFX_POOL = {};
 let audioUnlocked = false;
+// Звуки играют ТОЛЬКО во время живой игры. До этого (поиск/подключение/accept/резюм, в т.ч.
+// возврат в уже завершённый матч) — тишина: ставится true при старте живого раунда, false при
+// старте поиска/нахождении матча. Резюм-снапшот в завершённый матч не проходит через round_start,
+// поэтому win/lose там не звучит.
+let sfxLive = false;
+// Помечаем room_id матча «просмотренным» (его результат показан в игре) — shell на главной
+// тогда НЕ покажет модалку результата повторно. Если матч завершился, пока игрока не было,
+// сюда не зайдём → shell покажет результат один раз.
+function markMatchResultSeen(roomId) {
+  try {
+    if (roomId == null) return;
+    const key = 'f1_seen_match_results';
+    const a = JSON.parse(localStorage.getItem(key) || '[]');
+    const s = String(roomId);
+    if (a.indexOf(s) < 0) { a.push(s); while (a.length > 60) a.shift(); localStorage.setItem(key, JSON.stringify(a)); }
+  } catch {}
+}
 function preloadSounds() {
   audioUnlocked = false;
   const vols = { click: 0.3, swoosh: 0.4, hit: 0.6, miss: 0.6, win: 0.6, lose: 0.6 };
@@ -52,6 +69,7 @@ function unlockAudio() {
 }
 function sfx(name) {
   try {
+    if (!sfxLive) return;
     if (!appSettings().sound) return;
     if (!audioUnlocked) unlockAudio();
     const s = SFX_POOL[name]; if (!s) return;
@@ -188,10 +206,15 @@ const GamePage = () => {
   const serverSkewMsRef = useRef(0);
   const serverSkewSamplesRef = useRef([]);
   const acceptInfoRef = useRef(null);
+  // Локальный старт отсчёта accept: показываем свежие 5с с момента, когда КЛИЕНТ обнаружил матч
+  // (а не от серверного deadline — иначе «ждавший» игрок видит 2-3с из-за задержки поллинга).
+  const acceptLocalStartMsRef = useRef(0);
   const myTgIdRef = useRef('');
   const animationGenRef = useRef(0);
   const screenRef = useRef('');
   const findInFlightRef = useRef(false);
+  // Момент старта онлайн-поиска — для дисейбла кнопки «Отмена» первые 10с.
+  const searchStartMsRef = useRef(0);
   const lockedMySideRef = useRef(null);
   // Первое применение состояния после монтирования/реконнекта — для resume-снапшота (без
   // проигрывания пропущенных раундов, см. applyPvpRoomState).
@@ -298,10 +321,12 @@ const GamePage = () => {
     window.location.href = '/';
   }, []);
   useEffect(() => {
-    if (screen !== 'waiting' || !acceptInfo) return undefined;
+    // Тикаем на всём экране ожидания: для отсчёта accept И для авто-разблокировки кнопки
+    // «Отмена» после первых 10с поиска.
+    if (screen !== 'waiting') return undefined;
     const id = setInterval(() => setAcceptTick((v) => v + 1), 500);
     return () => clearInterval(id);
-  }, [screen, acceptInfo]);
+  }, [screen]);
   useEffect(() => {
     const ping = () => {
       const init = tgInitDataRef.current;
@@ -372,9 +397,12 @@ const GamePage = () => {
       }
     };
     // Закрытие приложения не завершает активный матч: только отмена очереди ожидания.
-    // pvpCancelQueue не форфейтит живую игру (она доигрывается по таймеру на сервере);
-    // явный выход = форфейт остаётся в cleanup на unmount ниже.
-    const onPageHidePvp = () => postPvp('pvpCancelQueue');
+    // pvpCancelQueue шлём ТОЛЬКО пока реально идёт поиск (waiting и матч ещё не найден). После
+    // нахождения (accept) или в активной игре — НЕ отменяем, матч доигрывается по таймеру.
+    const onPageHidePvp = () => {
+      const scr = screenRef.current;
+      if (scr === 'waiting' && !acceptInfoRef.current) postPvp('pvpCancelQueue');
+    };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onPageHidePvp);
     return () => {
@@ -573,8 +601,9 @@ const GamePage = () => {
   // ============ SERVER ============
   const handleMsg = useCallback((msg) => {
     switch(msg.type) {
-      case 'waiting': setScreen('waiting'); break;
+      case 'waiting': sfxLive = false; setScreen('waiting'); break;
       case 'game_found':
+        sfxLive = false;
         setOpponent(msg.opponent); setPlayerIndex(msg.playerIndex); piRef.current=msg.playerIndex;
         setScores([0,0]); setGamePhase(null); setBallAnim(null); setShotResult(null);
         setPositions([{x:PLAYER_X[0],y:START_Y},{x:PLAYER_X[1],y:START_Y}]);
@@ -596,6 +625,8 @@ const GamePage = () => {
         }
         if (lockedMySideRef.current === 'p1') piRef.current = 0;
         else if (lockedMySideRef.current === 'p2') piRef.current = 1;
+        // Живой раунд начался — со звуком (резюм в завершённый матч сюда не доходит).
+        sfxLive = true;
         choiceLockedRef.current = false;
         pvpMoveCommittedRef.current = false;
         autoFiredRef.current = false;
@@ -704,6 +735,8 @@ const GamePage = () => {
     if (s.turnId) turnIdRef.current = String(s.turnId);
     if (String(room.status) === 'active' && String(s.phase || '') === 'accept_match') {
       const am = s.acceptMatch || {};
+      // Якорим локальный старт отсчёта при первом обнаружении accept (свежие 5с у обоих игроков).
+      if (!acceptLocalStartMsRef.current) acceptLocalStartMsRef.current = Date.now();
       setAcceptInfo({
         p1: room.player1_name || 'Игрок 1',
         p2: room.player2_name || 'Игрок 2',
@@ -714,6 +747,7 @@ const GamePage = () => {
       return;
     }
     if (String(room.status) === 'waiting') {
+      acceptLocalStartMsRef.current = 0;
       setAcceptInfo(null);
       setScreen('waiting');
       return;
@@ -740,6 +774,7 @@ const GamePage = () => {
     pvpOpponentTgIdRef.current = meIsP1 ? String(room.player2_tg_user_id || '') : String(room.player1_tg_user_id || '');
     pvpOpponentIsBotRef.current = pvpOpponentTgIdRef.current.startsWith('bot_fallback_');
     setScreen('game');
+    acceptLocalStartMsRef.current = 0;
     setAcceptInfo(null);
     setPlayerIndex(myIdx);
     piRef.current = myIdx;
@@ -760,7 +795,11 @@ const GamePage = () => {
       pvpLastPhaseKeyRef.current = String(Number(s.phaseNum || 2));
       setScores(snapScores);
       scoresRef.current = snapScores;
+      // Выставляем gamePhase напрямую: снапшот подавляет phase_start (см. ниже), а без gamePhase
+      // не рендерится подпись раунда {round}/{maxRounds}. Это покрывает и свежий матч, и резюм.
+      setGamePhase(Number(s.phaseNum || 2) === 2 ? 'main' : 'overtime');
       if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+        markMatchResultSeen(room.id);
         stopPvpPolling();
         pvpRoomIdRef.current = null;
         let youWon = false;
@@ -828,6 +867,7 @@ const GamePage = () => {
     }
 
     if (s.phase === 'match_over' || String(room.status) === 'finished' || String(room.status) === 'cancelled') {
+      markMatchResultSeen(room.id);
       stopPvpPolling();
       pvpRoomIdRef.current = null;
       const arr = [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)];
@@ -1030,6 +1070,9 @@ const GamePage = () => {
 
   const findGameOnline = () => {
     if (findInFlightRef.current) return;
+    sfxLive = false;
+    acceptLocalStartMsRef.current = 0;
+    searchStartMsRef.current = Date.now();
     sfx('click');
     const n = displayName.trim() || 'Player';
     const stakes = askStakeOptions();
@@ -1344,7 +1387,20 @@ const GamePage = () => {
       <div className="w-20 h-20 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       <p className={`text-white mt-6 ${isResumeConnect ? 'text-xl font-bold' : 'text-3xl uppercase tracking-widest'}`}>{isResumeConnect ? 'Загрузка активной игры...' : 'ИЩЕМ...'}</p>
       {!isResumeConnect && !!selectedStakeOptions.length && <p className="text-gray-400 text-sm uppercase mt-2">Ставки: {selectedStakeOptions.join(', ')} TON</p>}
-      {!isResumeConnect && <button onClick={cancelWait} className="text-gray-600 text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl">Отмена</button>}
+      {!isResumeConnect && (() => {
+        const sinceMs = Date.now() - Number(searchStartMsRef.current || 0);
+        const within10s = !searchStartMsRef.current || sinceMs < 10000;
+        const cancelDisabled = !!acceptInfo || within10s; // нашёлся соперник или первые 10с поиска
+        return (
+          <button
+            onClick={cancelDisabled ? undefined : cancelWait}
+            disabled={cancelDisabled}
+            className={`text-sm uppercase mt-8 px-8 py-3 border border-white/10 rounded-xl ${cancelDisabled ? 'text-gray-700 opacity-40 cursor-not-allowed' : 'text-gray-600'}`}
+          >
+            Отмена
+          </button>
+        );
+      })()}
       {!!acceptInfo && (
         <div className="fixed inset-0 z-[999] bg-black/65 backdrop-blur-[2px] flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-gradient-to-b from-[#6a3b1f] to-[#3f2517] border border-emerald-200/35 rounded-2xl p-5 text-center shadow-2xl">
@@ -1352,8 +1408,10 @@ const GamePage = () => {
             <p className="text-gray-100 text-sm mt-2">{acceptInfo.p1} vs {acceptInfo.p2}</p>
             {acceptInfo.stake != null && <p className="text-emerald-200 text-sm mt-1">Ставка: {acceptInfo.stake} TON</p>}
             {(() => {
-              const skew = Number(serverSkewMsRef.current || 0); // localNow - serverNow
-              const leftSec = Math.max(0, Math.ceil(((Number(acceptInfo.deadlineMs || 0) + skew) - Date.now()) / 1000));
+              // Локальный отсчёт: свежие 5с от момента, когда клиент обнаружил матч (acceptTick
+              // форсит перерисовку каждые 500мс). Сервер авто-стартует игру по своему окну (6с).
+              const startMs = Number(acceptLocalStartMsRef.current || 0) || Date.now();
+              const leftSec = Math.max(0, Math.min(5, Math.ceil((startMs + 5000 - Date.now()) / 1000)));
               return (
                 <p className={`text-3xl font-black mt-2 ${leftSec <= 3 ? 'text-rose-200' : 'text-emerald-200'}`}>
                   {leftSec + (acceptTick * 0)}с

@@ -4223,11 +4223,9 @@ async function pvpCancelQueue(initData, roomId) {
     });
     return { cancelled: true };
   }
-  if (room.status === "active" && phase === "accept_match") {
-    await pvpCancelRooms([id]);
-    return { cancelled: true };
-  }
-  // Queue cancel must never forfeit a live match.
+  // Соперник уже найден (accept_match) или матч активен — отмена ОЧЕРЕДИ не отменяет игру.
+  // Раньше accept_match отменялся (рефанд+удаление), из-за чего выход из приложения сразу после
+  // нахождения соперника убивал найденный матч. Теперь отменяется только поиск (waiting).
   return { cancelled: false, status: room.status };
 }
 
@@ -4563,41 +4561,45 @@ function matchHistoryRoomKey(m) {
   return null;
 }
 
-function pvpBalanceEventToMatch(tgId, event, room) {
+function pvpBalanceEventToMatch(tgId, event, room, gameMatch) {
   const meta = asObj(event.meta) || {};
   const isWinner = event.event_type === "win";
   const stake = Number(event.stake_ton || 0);
   const gameKey = String(event.game_key || "frog_hunt");
+  // Источник имён/счёта: живая комната (обычно уже удалена после финиша) → запись game_matches,
+  // которая НЕ удаляется и хранит реальный счёт score_json={left:p1,right:p2}. Раньше при
+  // удалённой комнате счёт откатывался на бинарный 1:0/0:1 — это и был баг истории.
   const roomObj = room && typeof room === "object" ? room : null;
-  const isP1 = roomObj && String(roomObj.player1_tg_user_id) === String(tgId);
-  const myName = isP1
-    ? String(roomObj.player1_name || "Вы")
-    : roomObj
-      ? String(roomObj.player2_name || "Вы")
-      : "Вы";
-  const oppId = roomObj
-    ? (isP1 ? roomObj.player2_tg_user_id : roomObj.player1_tg_user_id)
-    : null;
-  const oppName = roomObj
-    ? (isP1 ? roomObj.player2_name : roomObj.player1_name) || "Соперник"
-    : "Соперник";
+  const gm = gameMatch && typeof gameMatch === "object" ? gameMatch : null;
+  const p1Id = roomObj ? roomObj.player1_tg_user_id : (gm ? gm.player1_tg_user_id : null);
+  const p1Name = roomObj ? roomObj.player1_name : (gm ? gm.player1_name : null);
+  const p2Id = roomObj ? roomObj.player2_tg_user_id : (gm ? gm.player2_tg_user_id : null);
+  const p2Name = roomObj ? roomObj.player2_name : (gm ? gm.player2_name : null);
+  const isP1 = p1Id != null ? String(p1Id) === String(tgId) : true;
+  const myName = String((isP1 ? p1Name : p2Name) || "Вы");
+  const oppId = isP1 ? p2Id : p1Id;
+  const oppName = String((isP1 ? p2Name : p1Name) || "Соперник");
   const winnerId = isWinner ? tgId : (oppId ? String(oppId) : null);
   let left = isWinner ? 1 : 0;
   let right = isWinner ? 0 : 1;
+  let p1 = null;
+  let p2 = null;
   if (roomObj?.state_json) {
     const s = asObj(roomObj.state_json);
-    const scores = asObj(s.scores);
-    const matchScores = asObj(s.matchScores);
     const src =
       gameKey === "obstacle_race" || gameKey === "super_penalty" || gameKey === "basketball"
-        ? scores
-        : matchScores;
-    const p1 = Number(src.p1 ?? 0);
-    const p2 = Number(src.p2 ?? 0);
-    if (p1 || p2) {
-      left = isP1 ? p1 : p2;
-      right = isP1 ? p2 : p1;
-    }
+        ? asObj(s.scores)
+        : asObj(s.matchScores);
+    p1 = Number(src.p1 ?? 0);
+    p2 = Number(src.p2 ?? 0);
+  } else if (gm?.score_json) {
+    const sj = asObj(gm.score_json);
+    p1 = Number(sj.left ?? 0);
+    p2 = Number(sj.right ?? 0);
+  }
+  if (p1 != null && (p1 || p2)) {
+    left = isP1 ? p1 : p2;
+    right = isP1 ? p2 : p1;
   }
   return {
     id: `pvp_evt_${event.id}`,
@@ -4723,7 +4725,7 @@ async function fetchStakeBalanceEventsForUser(tgId, cap = MATCH_HISTORY_EVENT_CA
   return merged.slice(0, cap);
 }
 
-function buildMatchesFromStakeEvents(tgId, events, roomsById) {
+function buildMatchesFromStakeEvents(tgId, events, roomsById, gameMatchesByRoom) {
   const seenRooms = new Set();
   const out = [];
   for (const event of events || []) {
@@ -4736,9 +4738,26 @@ function buildMatchesFromStakeEvents(tgId, events, roomsById) {
       seenRooms.add(roomKey);
     }
     const room = rid > 0 ? roomsById.get(rid) : null;
-    out.push(pvpBalanceEventToMatch(tgId, event, room));
+    const gameMatch = rid > 0 && gameMatchesByRoom ? gameMatchesByRoom.get(rid) : null;
+    out.push(pvpBalanceEventToMatch(tgId, event, room, gameMatch));
   }
   return out;
+}
+
+// Реальный счёт PvP-матчей (включая бот-фоллбэк, mode='pvp') берём из game_matches по roomId.
+// Комнаты после финиша удаляются, а game_matches — постоянная история со score_json.
+async function fetchPvpGameMatchesByRoomForUser(tgId, cap = 500) {
+  const p1 = encodeURIComponent(tgId);
+  const rows = await sb(
+    `game_matches?or=(player1_tg_user_id.eq.${p1},player2_tg_user_id.eq.${p1})&mode=eq.pvp&select=id,game_key,mode,player1_tg_user_id,player1_name,player2_tg_user_id,player2_name,winner_tg_user_id,score_json,details_json,finished_at&order=finished_at.desc&limit=${cap}`
+  ).catch(() => []);
+  const map = new Map();
+  for (const r of rows || []) {
+    const d = asObj(r.details_json);
+    const rid = Number(d.roomId != null ? d.roomId : d.room_id);
+    if (Number.isInteger(rid) && rid > 0 && !map.has(rid)) map.set(rid, r);
+  }
+  return map;
 }
 
 async function getMatchHistory(initData, limit = 50, gameKeyFilter = null) {
@@ -4756,9 +4775,12 @@ async function getMatchHistory(initData, limit = 50, gameKeyFilter = null) {
   const rouletteEvents = (allEvents || []).filter((e) => String(e.game_key || "") === "roulette");
   const pvpEvents = (allEvents || []).filter((e) => String(e.game_key || "") !== "roulette");
   const roomIds = pvpEvents.map((e) => e.room_id).filter((id) => id != null);
-  const roomsById = await fetchPvpRoomsByIds(roomIds);
+  const [roomsById, gameMatchesByRoom] = await Promise.all([
+    fetchPvpRoomsByIds(roomIds),
+    fetchPvpGameMatchesByRoomForUser(tgId),
+  ]);
 
-  const pvpFromEvents = buildMatchesFromStakeEvents(tgId, pvpEvents, roomsById);
+  const pvpFromEvents = buildMatchesFromStakeEvents(tgId, pvpEvents, roomsById, gameMatchesByRoom);
   const rouletteMatches = rouletteEventsToMatches(tgId, rouletteEvents, MATCH_HISTORY_EVENT_CAP);
 
   const seen = new Set();

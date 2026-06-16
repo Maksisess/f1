@@ -465,13 +465,22 @@ const GamePage = () => {
           if (remainingMs <= 0) return 2;
           return Math.ceil(remainingMs / 1000);
         };
+        // Обычный ход — фиксированные 15с (стабильно). Остаток до авто-резолва считаем ТОЛЬКО
+        // при резюме (заход/перезаход в середине хода), иначе clock-offset на первых ходах
+        // давал скачки 5↔15.
+        const PENALTY_TURN_SECONDS = 15;
+        const turnStartSec = (() => {
+          if (!msg.isResume) return PENALTY_TURN_SECONDS;
+          const r = computeRemainingSeconds();
+          return Number.isFinite(r) && r > 0 ? r : PENALTY_TURN_SECONDS;
+        })();
         if (!overtimeAnnounceRef.current) {
           setRoleAnnounce({ role: msg.role, round: msg.round });
           setInputBlocked(true);
           setTimeout(() => {
             setRoleAnnounce(null);
             setInputBlocked(false);
-            startTimer(computeRemainingSeconds());
+            startTimer(turnStartSec);
           }, 500);
         } else {
           setTimeout(() => {
@@ -480,7 +489,7 @@ const GamePage = () => {
             setTimeout(() => {
               setRoleAnnounce(null);
               setInputBlocked(false);
-              startTimer(computeRemainingSeconds());
+              startTimer(turnStartSec);
             }, 500);
           }, 2000);
         }

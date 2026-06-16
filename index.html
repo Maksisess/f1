@@ -2073,6 +2073,29 @@
     </div>
   </div>
 
+  <!-- Результат матча, завершённого пока игрока не было в приложении (показывается один раз). -->
+  <div id="finishedResultModal" class="modalWrap">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="finishedResultTitle">Матч завершён</h3>
+        <button class="modal-close" id="finishedResultClose" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div style="text-align:center">
+        <div id="finishedResultOutcome" style="font-size:22px;font-weight:950;margin:4px 0 2px"></div>
+        <div id="finishedResultGame" class="muted" style="font-size:13px"></div>
+        <div id="finishedResultScore" style="font-size:40px;font-weight:950;font-variant-numeric:tabular-nums;margin:14px 0"></div>
+        <div id="finishedResultStake" class="muted" style="font-size:13px"></div>
+      </div>
+      <div style="margin-top:18px">
+        <button class="btn primary" id="finishedResultOk" style="width:100%">Понятно</button>
+      </div>
+    </div>
+  </div>
+
   <div id="rulesModal" class="modalWrap">
     <div class="modal modal-card--rules">
       <div class="modal-header">
@@ -3028,6 +3051,69 @@
     };
     if(close) close.onclick = ()=> hideActiveMatchModal();
     if(wrap) wrap.addEventListener("click", (e)=>{ if(e.target === wrap) hideActiveMatchModal(); });
+  })();
+
+  // ===== РЕЗУЛЬТАТ МАТЧА, ЗАВЕРШЁННОГО ПОКА ИГРОК БЫЛ ВНЕ ПРИЛОЖЕНИЯ =====
+  // Игры помечают свой room_id «просмотренным» (localStorage f1_seen_match_results), когда сами
+  // показали экран результата. Поэтому если матч завершился, пока игрока не было (игра результат
+  // не показала), его room_id НЕ в множестве → shell покажет модалку один раз. Нет повтора и петли.
+  const F1_SEEN_RESULTS_KEY = "f1_seen_match_results";
+  function f1SeenResults(){ try{ return JSON.parse(localStorage.getItem(F1_SEEN_RESULTS_KEY) || "[]"); }catch(e){ return []; } }
+  function f1MarkResultSeen(id){
+    try{
+      if(id == null) return;
+      const a = f1SeenResults();
+      const s = String(id);
+      if(a.indexOf(s) < 0){ a.push(s); while(a.length > 60) a.shift(); localStorage.setItem(F1_SEEN_RESULTS_KEY, JSON.stringify(a)); }
+    }catch(e){}
+  }
+  function hideFinishedResultModal(){ const m = document.getElementById("finishedResultModal"); if(m) m.classList.remove("show"); }
+  function showFinishedResultModal(match){
+    const myTgId = String(state.profile.tgUserId || tg?.initDataUnsafe?.user?.id || "");
+    const sj = match.score_json || {};
+    const my = Number(sj.left || 0), opp = Number(sj.right || 0);
+    const won = match.winner_tg_user_id != null && String(match.winner_tg_user_id) === myTgId;
+    const draw = (match.winner_tg_user_id == null || match.winner_tg_user_id === "") && my === opp;
+    const nm = ACTIVE_GAME_NAMES[match.game_key] || "Матч";
+    const stake = Number((match.details_json || {}).stakeTon || 0);
+    const outcomeEl = document.getElementById("finishedResultOutcome");
+    if(outcomeEl){
+      outcomeEl.textContent = draw ? "Ничья" : (won ? "Победа" : "Поражение");
+      outcomeEl.style.color = draw ? "#cfd6e6" : (won ? "#8CFFC1" : "#ff7a7a");
+    }
+    const gEl = document.getElementById("finishedResultGame"); if(gEl) gEl.textContent = nm;
+    const sEl = document.getElementById("finishedResultScore"); if(sEl) sEl.textContent = my + " : " + opp;
+    const stEl = document.getElementById("finishedResultStake");
+    if(stEl){
+      stEl.textContent = stake > 0
+        ? (won ? ("Выигрыш +" + stake + " TON") : (draw ? ("Ставка возвращена · " + stake + " TON") : ("Проигрыш −" + stake + " TON")))
+        : "";
+    }
+    const m = document.getElementById("finishedResultModal"); if(m) m.classList.add("show");
+  }
+  function maybeShowFinishedMatchResult(){
+    try{
+      const list = Array.isArray(matchesCache) ? matchesCache : [];
+      // Последний завершённый PvP-матч (matchesCache отсортирован по finished_at desc).
+      const m = list.find((x) => x && x.mode === "pvp" && x.finished_at);
+      if(!m) return;
+      const d = m.details_json || {};
+      const roomId = d.roomId != null ? d.roomId : d.room_id;
+      if(roomId == null) return;
+      const finishedMs = new Date(m.finished_at).getTime();
+      if(!(finishedMs > Date.now() - 3 * 3600 * 1000)) return; // только недавние (последние 3 часа)
+      if(f1SeenResults().indexOf(String(roomId)) >= 0) return;  // уже показан (в игре или раньше)
+      f1MarkResultSeen(roomId);
+      showFinishedResultModal(m);
+    }catch(e){}
+  }
+  (function wireFinishedResultModal(){
+    const ok = document.getElementById("finishedResultOk");
+    const close = document.getElementById("finishedResultClose");
+    const wrap = document.getElementById("finishedResultModal");
+    if(ok) ok.onclick = ()=> hideFinishedResultModal();
+    if(close) close.onclick = ()=> hideFinishedResultModal();
+    if(wrap) wrap.addEventListener("click", (e)=>{ if(e.target === wrap) hideFinishedResultModal(); });
   })();
 
   let randomSelectedStakes = [];
@@ -4424,6 +4510,9 @@
         renderAll();
         initNav();
         document.body.classList.remove("booting");
+        // Матч мог завершиться, пока игрока не было — показываем его результат один раз
+        // (matchesCache уже загружен loadMatchHistory выше).
+        maybeShowFinishedMatchResult();
         syncPresenceAndOnline();
         setInterval(presencePing, 8000);
         setInterval(refreshOnlineCount, 14000);
