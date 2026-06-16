@@ -2670,6 +2670,13 @@ function pvpAdvanceByTime(room) {
   if (acceptStep.blocked) {
     return { changed: acceptStep.changed, state: acceptStep.state };
   }
+  // Accept-фаза истекла и перешла в turn_input — переносим этот переход наружу. Иначе он терялся:
+  // игровые ветки ниже работают со старым s (ещё accept_match) и ничего не делают, поэтому при
+  // догоне (pvpAdvanceCatchUp) матч застревал в accept_match и сбрасывался на 1-й ход — пропущенные
+  // за время отсутствия ходы не доигрывались. Следующий шаг догона обработает уже turn_input.
+  if (acceptStep.changed) {
+    return { changed: true, state: acceptStep.state };
+  }
   if (String(room?.game_key || "") === "basketball" || s.engine === "basketball_v1") {
     const now = pvpNow();
     const phaseAt = Number(s?.phaseAtMs || 0);
