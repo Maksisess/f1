@@ -602,9 +602,22 @@ const GamePage = () => {
         setMaxRounds(msg.maxRounds);
         setChoosing(true);
         setLocked(false);
-        // Свежие 15с от момента, когда раунд реально стартовал для игрока (после
-        // анимации прошлого раунда). Так у игрока всегда полное окно на выбор.
-        startTimer(15, Date.now() + 15_000);
+        // В обычной игре — свежие 15с (анимация прошлого раунда уже «съела» часть серверного
+        // лимита 28с, запас есть). На РЕЗЮМЕ (обновление/перезаход в середине хода — анимации нет)
+        // ограничиваем окно фактическим остатком до серверного авто-резолва (28с от phaseAtMs),
+        // иначе клиент показал бы 15с, а сервер успел бы авто-добрать ход случайным выбором.
+        {
+          let winMs = 15_000;
+          const pAt = Number(msg.phaseAtMs || 0);
+          if (pAt > 0) {
+            const SERVER_RESOLVE_MS = 28_000;
+            const SAFETY_MS = 1_500;
+            const serverNow = Date.now() - Number(serverSkewMsRef.current || 0);
+            const remainingMs = (pAt + SERVER_RESOLVE_MS) - serverNow - SAFETY_MS;
+            winMs = Math.max(2_000, Math.min(15_000, remainingMs));
+          }
+          startTimer(Math.ceil(winMs / 1000), Date.now() + winMs);
+        }
         break;
       case 'choice_locked': setLocked(true); choiceLockedRef.current = true; stopTimer(); break;
       case 'round_result':
@@ -767,6 +780,7 @@ const GamePage = () => {
         phase: phaseNum,
         scores: [Number(s?.scores?.p1 || 0), Number(s?.scores?.p2 || 0)],
         timerSec: 15,
+        phaseAtMs: Number(s.phaseAtMs || 0),
       };
       handleMsg(msg);
       return;

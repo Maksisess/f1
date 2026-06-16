@@ -575,7 +575,7 @@ function applyPvpRoomState(room) {
             $('btn-traps-ok').disabled = true;
             $('traps-wait').classList.add('hidden');
             showScreen('traps');
-            startTrapTimer();
+            startTrapTimer(Number(s.phaseAtMs || 0));
         }
         return;
     }
@@ -1027,15 +1027,27 @@ function stopTrapTimer() {
     if (timerEl) timerEl.style.display = 'none';
 }
 
-function startTrapTimer() {
+function startTrapTimer(phaseAtMs) {
     // Не запускаем если уже подтвердили ловушки
     if (trapsConfirmed) return;
     // Не перезапускаем если таймер уже идёт
     if (trapTimerInterval) return;
     stopTrapTimer();
-    var maxTraps = overtimePlacing ? 1 : 3;
-    var totalSec = 20; // 20 секунд на расстановку
-    var remaining = totalSec;
+    // Серверный авто-резолв фазы расстановки: 22с (обычная) / 30с (овертайм) от phaseAtMs.
+    // Клиент показывает ОСТАТОК до него, а не фиксированные 20с: на резюме/обновлении фаза может
+    // быть уже «старой», и тогда сервер авто-расставил бы случайные ловушки, пока у игрока на
+    // экране ещё есть время. В обычной игре (phaseAtMs ≈ сейчас) окно остаётся ~20с.
+    var serverResolveMs = overtimePlacing ? 30000 : 22000;
+    var clientWindowMs = 20000;
+    var nowServer = Date.now() - (Number(pvpServerSkewMs || 0));
+    var pAt = Number(phaseAtMs || 0);
+    var endAt;
+    if (pAt > 1000000000000) {
+        var remainingMs = (pAt + serverResolveMs) - nowServer - 1500; // запас на сеть
+        endAt = nowServer + Math.max(2000, Math.min(clientWindowMs, remainingMs));
+    } else {
+        endAt = nowServer + clientWindowMs;
+    }
 
     // Создаём элемент таймера если нет
     var timerEl = $('trap-timer');
@@ -1049,10 +1061,14 @@ function startTrapTimer() {
         }
     }
     timerEl.style.display = 'block';
-    timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
+    var leftSec = function() {
+        var nowS = Date.now() - (Number(pvpServerSkewMs || 0));
+        return Math.max(0, Math.ceil((endAt - nowS) / 1000));
+    };
+    timerEl.textContent = 'Авто-расстановка через ' + leftSec() + 'с';
 
     trapTimerInterval = setInterval(function() {
-        remaining--;
+        var remaining = leftSec();
         if (timerEl) timerEl.textContent = 'Авто-расстановка через ' + remaining + 'с';
         if (remaining <= 0) {
             stopTrapTimer();
@@ -1067,7 +1083,7 @@ function startTrapTimer() {
             updateTrapUI();
             confirmTraps();
         }
-    }, 1000);
+    }, 400);
 }
 
 function confirmTraps() {
