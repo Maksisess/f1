@@ -291,6 +291,7 @@ function showBottomNotice(msg) {
         n.style.fontSize = '13px';
         n.style.fontWeight = '700';
         n.style.zIndex = '9999';
+        n.style.pointerEvents = 'none';
         n.style.display = 'none';
         document.body.appendChild(n);
     }

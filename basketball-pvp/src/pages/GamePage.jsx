@@ -1374,7 +1374,7 @@ const GamePage = () => {
           <button onClick={()=>goHome()} className="w-full mt-2 bg-white/5 border border-white/15 text-white py-3 rounded-xl">Назад</button>
         </div>
         {!!bottomNotice && (
-          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none bg-black/90 text-white text-sm font-bold px-4 py-2 rounded-xl">
             {bottomNotice}
           </div>
         )}
